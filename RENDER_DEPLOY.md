@@ -50,7 +50,7 @@ This project supports two deployment methods:
 1. Log in to [Render Dashboard](https://dashboard.render.com/)
 2. Click **"New +"** → **"Web Service"**
 3. Connect your GitHub repository
-4. Select the repository containing the API code
+4. Select the repository `cs2-valuation-api`
 
 ### Step 2: Configure Service Settings
 
@@ -59,7 +59,7 @@ This project supports two deployment methods:
 | **Name** | `cs2-valuation-api` (or your preferred name) |
 | **Region** | Choose closest to your users |
 | **Branch** | `main` (or your default branch) |
-| **Root Directory** | `cotacao_cs2` ⚠️ **Important** |
+| **Root Directory** | `.` (if code is in repo root) or `cotacao_cs2` (if in subdirectory) ⚠️ **Check your repo structure** |
 | **Runtime** | `Python 3` |
 | **Build Command** | `pip install -r requirements.txt` |
 | **Start Command** | `gunicorn -k uvicorn.workers.UvicornWorker -w 4 --timeout 120 --keep-alive 120 main:app -b 0.0.0.0:$PORT` |
@@ -327,6 +327,6 @@ ALLOWED_ORIGINS = [
 
 <div align="center">
 
-**Need Help?** [Open an Issue](https://github.com/<your-username>/cotacao_cs2/issues) · [View Logs](https://dashboard.render.com/)
+**Need Help?** [Open an Issue](https://github.com/<your-username>/cs2-valuation-api/issues) · [View Logs](https://dashboard.render.com/)
 
 </div>

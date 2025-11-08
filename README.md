@@ -107,8 +107,8 @@ The API is currently used in production by a frontend hosted on GitHub Pages, bu
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/<your-username>/cotacao_cs2.git
-cd cotacao_cs2
+git clone https://github.com/<your-username>/cs2-valuation-api.git
+cd cs2-valuation-api
 
 # 2. Create virtual environment
 python -m venv .venv
@@ -162,8 +162,8 @@ This project is fully configured for deployment on [Render.com](https://render.c
 ### Quick Deploy Steps
 
 1. **Create a Web Service** on Render
-   - Connect your GitHub repository
-   - Set **Root Directory** to `cotacao_cs2`
+   - Connect your GitHub repository (`cs2-valuation-api`)
+   - Set **Root Directory** to `.` (if code is in repo root) or `cotacao_cs2` (if in subdirectory)
    - Select **Python 3** environment
 
 2. **Configure Build & Start Commands**
@@ -253,7 +253,7 @@ Some endpoints require Steam OpenID authentication. See the `/docs` endpoint for
 ## 📁 Project Structure
 
 ```
-cotacao_cs2/
+cs2-valuation-api/
 ├── main.py                 # FastAPI application entry point
 ├── migrate_db.py          # Database initialization script
 ├── requirements.txt        # Python dependencies
@@ -319,6 +319,6 @@ This project is licensed under the MIT License. See the repository for details.
 
 **Built with ❤️ for the CS2 community**
 
-[Report Bug](https://github.com/<your-username>/cotacao_cs2/issues) · [Request Feature](https://github.com/<your-username>/cotacao_cs2/issues) · [Documentation](https://github.com/<your-username>/cotacao_cs2#readme)
+[Report Bug](https://github.com/<your-username>/cs2-valuation-api/issues) · [Request Feature](https://github.com/<your-username>/cs2-valuation-api/issues) · [Documentation](https://github.com/<your-username>/cs2-valuation-api#readme)
 
 </div>
