@@ -422,7 +422,7 @@ async def case(case_name: str, response: Response, request: Request = None):
 
 @app.get("/price/{market_hash_name}")
 async def price(market_hash_name: str, response: Response, request: Request = None):
-    """Returns the price of an item by its market_hash_name"""
+    """Returns the price of an item by its market_hash_name, including detailed data for all wear conditions and StatTrak versions"""
     # Add CORS headers manually to ensure they are present even in case of error
     origin = request.headers.get("origin", "*") if request else "*"
     if origin and (origin in ALLOWED_ORIGINS or "*" in ALLOWED_ORIGINS):
@@ -437,15 +437,37 @@ async def price(market_hash_name: str, response: Response, request: Request = No
     try:
         item_price_data = get_item_price(market_hash_name)
         
-        # Build response with currency information
+        # Build response with all available data
         response_data = {
-            "market_hash_name": market_hash_name,
+            "market_hash_name": item_price_data.get("market_hash_name", market_hash_name),
             "price": item_price_data["price"],
             "currency": item_price_data["currency"],
-            "timestamp": datetime.datetime.now().isoformat()
+            "timestamp": item_price_data.get("timestamp", datetime.datetime.now().isoformat()),
+            "source": item_price_data.get("source", "unknown")
         }
         
-        # Add optional fields if they exist
+        # Add detailed price data if available
+        if "prices" in item_price_data:
+            response_data["prices"] = item_price_data["prices"]
+        
+        if "price_range" in item_price_data:
+            response_data["price_range"] = item_price_data["price_range"]
+        
+        # Add image URL if available
+        if "image_url" in item_price_data and item_price_data["image_url"]:
+            response_data["image_url"] = item_price_data["image_url"]
+        
+        # Add metadata if available
+        if "rarity" in item_price_data:
+            response_data["rarity"] = item_price_data["rarity"]
+        
+        if "category" in item_price_data:
+            response_data["category"] = item_price_data["category"]
+        
+        if "weapon" in item_price_data:
+            response_data["weapon"] = item_price_data["weapon"]
+        
+        # Add optional fields for backward compatibility
         if "sources_count" in item_price_data:
             response_data["sources_count"] = item_price_data["sources_count"]
             
@@ -457,6 +479,8 @@ async def price(market_hash_name: str, response: Response, request: Request = No
             
         return response_data
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {"error": str(e), "market_hash_name": market_hash_name}
 
 

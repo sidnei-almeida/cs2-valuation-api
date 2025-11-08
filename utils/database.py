@@ -133,8 +133,25 @@ def init_db():
                 last_updated TIMESTAMP NOT NULL,
                 last_scraped TIMESTAMP NOT NULL,
                 update_count INTEGER DEFAULT 1,
+                detailed_data JSONB,
+                image_url TEXT,
                 UNIQUE(market_hash_name, currency, app_id)
             )
+            ''')
+            
+            # Add new columns if they don't exist (for existing tables)
+            cursor.execute('''
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                              WHERE table_name='skin_prices' AND column_name='detailed_data') THEN
+                    ALTER TABLE skin_prices ADD COLUMN detailed_data JSONB;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                              WHERE table_name='skin_prices' AND column_name='image_url') THEN
+                    ALTER TABLE skin_prices ADD COLUMN image_url TEXT;
+                END IF;
+            END $$;
             ''')
             
             # Table to store metadata and configurations
@@ -162,7 +179,7 @@ def init_db():
         print(f"Error initializing database: {e}")
         print("Operating in fallback mode (memory).")
 
-def get_skin_price(market_hash_name: str, currency: int, app_id: int) -> Optional[float]:
+def get_skin_price(market_hash_name: str, currency: int, app_id: int) -> Optional[Dict]:
     """
     Searches for a skin price in the database.
     
@@ -172,7 +189,8 @@ def get_skin_price(market_hash_name: str, currency: int, app_id: int) -> Optiona
         app_id: Steam application ID
         
     Returns:
-        Skin price or None if not found or outdated
+        Dictionary with price and detailed data, or None if not found or outdated
+        Format: {'price': float, 'detailed_data': dict, 'image_url': str} or None
     """
     if DB_AVAILABLE:
         try:
@@ -184,7 +202,7 @@ def get_skin_price(market_hash_name: str, currency: int, app_id: int) -> Optiona
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             
             cursor.execute('''
-            SELECT price, last_updated FROM skin_prices
+            SELECT price, last_updated, detailed_data, image_url FROM skin_prices
             WHERE market_hash_name = %s AND currency = %s AND app_id = %s
             ''', (market_hash_name, currency, app_id))
             
@@ -192,10 +210,18 @@ def get_skin_price(market_hash_name: str, currency: int, app_id: int) -> Optiona
             conn.close()
             
             if result:
-                price, last_updated = result['price'], result['last_updated']
+                price = result['price']
+                last_updated = result['last_updated']
+                detailed_data = result.get('detailed_data')
+                image_url = result.get('image_url')
+                
                 # Check if price is up to date (< 7 days)
                 if datetime.now() - last_updated < timedelta(days=7):
-                    return price
+                    return {
+                        'price': price,
+                        'detailed_data': detailed_data,
+                        'image_url': image_url
+                    }
             
             return None
         except Exception as e:
@@ -206,17 +232,22 @@ def get_skin_price(market_hash_name: str, currency: int, app_id: int) -> Optiona
         # Use memory cache when database is not available
         return _get_price_from_memory(market_hash_name, currency, app_id)
 
-def _get_price_from_memory(market_hash_name: str, currency: int, app_id: int) -> Optional[float]:
+def _get_price_from_memory(market_hash_name: str, currency: int, app_id: int) -> Optional[Dict]:
     """Gets price from memory cache"""
     key = f"{market_hash_name}:{currency}:{app_id}"
     with db_lock:
         if key in in_memory_db['skin_prices']:
             item = in_memory_db['skin_prices'][key]
             if datetime.now() - item['last_updated'] < timedelta(days=7):
-                return item['price']
+                return {
+                    'price': item['price'],
+                    'detailed_data': item.get('detailed_data'),
+                    'image_url': item.get('image_url')
+                }
     return None
 
-def save_skin_price(market_hash_name: str, price: float, currency: int, app_id: int):
+def save_skin_price(market_hash_name: str, price: float, currency: int, app_id: int, 
+                    detailed_data: Optional[Dict] = None, image_url: Optional[str] = None):
     """
     Saves or updates a skin price in the database.
     
@@ -225,6 +256,8 @@ def save_skin_price(market_hash_name: str, price: float, currency: int, app_id: 
         price: Current skin price
         currency: Currency code
         app_id: Steam application ID
+        detailed_data: Optional dictionary with detailed price data (all wear conditions, StatTrak, etc.)
+        image_url: Optional URL of the item image
     """
     now = datetime.now()
     
@@ -238,7 +271,9 @@ def save_skin_price(market_hash_name: str, price: float, currency: int, app_id: 
             'app_id': app_id,
             'last_updated': now,
             'last_scraped': now,
-            'update_count': 1
+            'update_count': 1,
+            'detailed_data': detailed_data,
+            'image_url': image_url
         }
     
     # Se o banco estiver disponível, tenta salvar nele também
@@ -258,20 +293,24 @@ def save_skin_price(market_hash_name: str, price: float, currency: int, app_id: 
             
             result = cursor.fetchone()
             
+            # Prepare detailed_data as JSON string
+            detailed_data_json = json.dumps(detailed_data) if detailed_data else None
+            
             if result:
                 # Update existing item
                 cursor.execute('''
                 UPDATE skin_prices
-                SET price = %s, last_updated = %s, update_count = update_count + 1
+                SET price = %s, last_updated = %s, update_count = update_count + 1,
+                    detailed_data = %s, image_url = %s
                 WHERE id = %s
-                ''', (price, now, result['id']))
+                ''', (price, now, detailed_data_json, image_url, result['id']))
             else:
                 # Insert new item
                 cursor.execute('''
                 INSERT INTO skin_prices 
-                (market_hash_name, price, currency, app_id, last_updated, last_scraped, update_count)
-                VALUES (%s, %s, %s, %s, %s, %s, 1)
-                ''', (market_hash_name, price, currency, app_id, now, now))
+                (market_hash_name, price, currency, app_id, last_updated, last_scraped, update_count, detailed_data, image_url)
+                VALUES (%s, %s, %s, %s, %s, %s, 1, %s, %s)
+                ''', (market_hash_name, price, currency, app_id, now, now, detailed_data_json, image_url))
             
             conn.commit()
             conn.close()

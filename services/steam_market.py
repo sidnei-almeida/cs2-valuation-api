@@ -436,6 +436,277 @@ def get_item_price_via_scraping(market_hash_name: str, appid: int = STEAM_APPID,
     raise Exception(f"Não foi possível obter o preço para {market_hash_name}")
 
 
+def get_item_detailed_data_via_csgostash(market_hash_name: str, currency: int = STEAM_MARKET_CURRENCY) -> Optional[Dict]:
+    """
+    Obtém dados completos de um item através de scraping do CSGOSkins.gg.
+    Extrai todos os preços por wear condition, versões StatTrak, imagem e outras informações.
+    
+    Args:
+        market_hash_name: Nome do item formatado para o mercado (pode incluir wear condition)
+        currency: Código da moeda
+        
+    Returns:
+        Dicionário completo com todos os dados do item ou None se falhar
+    """
+    # Extrair o nome base do item (remover StatTrak e wear condition)
+    cleaned_name = market_hash_name.replace("StatTrak™ ", "").replace("StatTrak ", "")
+    base_parts = cleaned_name.split(" (")
+    base_name = base_parts[0].strip()
+    
+    # Transformar o nome base para o formato do CSGOSkins.gg
+    formatted_name = base_name.lower()
+    formatted_name = formatted_name.replace(" | ", "-")
+    formatted_name = formatted_name.replace(" ", "-")
+    formatted_name = re.sub(r'[^\w\-]', '', formatted_name)
+    
+    # Construir URL do CSGOSkins.gg
+    url = f"https://csgoskins.gg/items/{formatted_name}"
+    
+    print(f"DEBUGGING: Obtendo dados completos para '{market_hash_name}' via CSGOSkins.gg")
+    print(f"DEBUGGING: URL de consulta: {url}")
+    
+    # Wait time between requests
+    sleep_between_requests()
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Cache-Control': 'no-cache',
+        'Referer': 'https://www.google.com/'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=30)
+        
+        if response.status_code != 200:
+            print(f"DEBUGGING: Erro ao acessar CSGOSkins.gg: Status {response.status_code}")
+            return None
+        
+        parser = HTMLParser(response.text)
+        html_text = response.text  # Armazenar HTML para uso posterior
+        
+        # Estrutura de dados a retornar
+        result = {
+            "market_hash_name": base_name,
+            "image_url": None,
+            "rarity": None,
+            "category": None,
+            "weapon": None,
+            "prices": {
+                "normal": {
+                    "factory_new": None,
+                    "minimal_wear": None,
+                    "field_tested": None,
+                    "well_worn": None,
+                    "battle_scarred": None
+                },
+                "stattrak": {
+                    "factory_new": None,
+                    "minimal_wear": None,
+                    "field_tested": None,
+                    "well_worn": None,
+                    "battle_scarred": None
+                }
+            },
+            "currency": "USD",
+            "source": "csgoskins.gg",
+            "timestamp": datetime.datetime.now().isoformat()
+        }
+        
+        # Extrair imagem da arma
+        # Tentar vários seletores possíveis para a imagem principal
+        image_selectors = [
+            'img[alt*="' + base_name.split('|')[0].strip() + '"]',  # Nome da arma
+            'img[alt*="' + base_name.split('|')[-1].strip() + '"]',  # Nome da skin
+            'img[src*="/items/"]',
+            'div[class*="item"] img',
+            'div[class*="image"] img',
+            'main img[src*=".png"]',
+            'main img[src*=".jpg"]',
+            'main img[src*=".webp"]',
+            'img.item-image',
+            'img[class*="weapon"]',
+            'img[class*="skin"]'
+        ]
+        
+        # Também procurar por padrões no HTML
+        img_pattern = r'<img[^>]+src=["\']([^"\']*(?:ak-47|redline|weapon|skin|item)[^"\']*\.(?:png|jpg|webp|jpeg))["\']'
+        img_matches = re.findall(img_pattern, html_text, re.IGNORECASE)
+        
+        if img_matches:
+            for img_src in img_matches:
+                if img_src:
+                    # Garantir URL absoluta
+                    if img_src.startswith('//'):
+                        img_src = 'https:' + img_src
+                    elif img_src.startswith('/'):
+                        img_src = 'https://csgoskins.gg' + img_src
+                    elif not img_src.startswith('http'):
+                        img_src = 'https://csgoskins.gg' + img_src
+                    result["image_url"] = img_src
+                    print(f"DEBUGGING: Imagem encontrada via regex: {img_src}")
+                    break
+        
+        # Se não encontrou via regex, tentar seletores CSS
+        if not result["image_url"]:
+            for selector in image_selectors:
+                try:
+                    img_element = parser.css_first(selector)
+                    if img_element:
+                        img_src = img_element.attributes.get('src') or img_element.attributes.get('data-src') or img_element.attributes.get('data-lazy-src')
+                        if img_src and ('png' in img_src.lower() or 'jpg' in img_src.lower() or 'webp' in img_src.lower()):
+                            # Garantir URL absoluta
+                            if img_src.startswith('//'):
+                                img_src = 'https:' + img_src
+                            elif img_src.startswith('/'):
+                                img_src = 'https://csgoskins.gg' + img_src
+                            elif not img_src.startswith('http'):
+                                img_src = 'https://csgoskins.gg' + img_src
+                            result["image_url"] = img_src
+                            print(f"DEBUGGING: Imagem encontrada via CSS selector '{selector}': {img_src}")
+                            break
+                except Exception as e:
+                    continue
+        
+        # Extrair informações básicas (raridade, categoria, arma)
+        # Procurar por badges/pills com informações
+        all_text = parser.body.text() if parser.body else ""
+        
+        # Extrair raridade (Classified, Covert, etc.)
+        rarity_patterns = ['Classified', 'Covert', 'Restricted', 'Mil-Spec', 'Consumer', 'Exceedingly Rare']
+        for rarity in rarity_patterns:
+            if rarity.lower() in all_text.lower():
+                result["rarity"] = rarity
+                break
+        
+        # Extrair categoria e tipo de arma do texto
+        if 'rifle' in all_text.lower():
+            result["category"] = "Rifle"
+        elif 'pistol' in all_text.lower():
+            result["category"] = "Pistol"
+        elif 'knife' in all_text.lower():
+            result["category"] = "Knife"
+        elif 'gloves' in all_text.lower() or 'glove' in all_text.lower():
+            result["category"] = "Gloves"
+        
+        # Extrair nome da arma (ex: AK-47)
+        weapon_match = re.search(r'(AK-47|AWP|M4A4|M4A1-S|Desert Eagle|Glock|USP-S|P250|Five-SeveN|Tec-9|CZ75|R8|Dual Berettas|P2000)', all_text, re.IGNORECASE)
+        if weapon_match:
+            result["weapon"] = weapon_match.group(1)
+        
+        # Extrair preços por wear condition
+        # Usar uma abordagem mais estruturada baseada na organização da página
+        all_text_lower = html_text.lower()
+        
+        # Mapeamento de wear conditions para padrões de busca
+        wear_patterns = {
+            "factory_new": [r'factory\s+new', r'\bfn\b'],
+            "minimal_wear": [r'minimal\s+wear', r'\bmw\b'],
+            "field_tested": [r'field[- ]tested', r'\bft\b'],
+            "well_worn": [r'well[- ]worn', r'\bww\b'],
+            "battle_scarred": [r'battle[- ]scarred', r'\bbs\b']
+        }
+        
+        # Padrão para extrair preços
+        price_pattern = r'(\$|R\$|€|£|¥)\s*([0-9]{1,3}(?:[.,][0-9]{2,3})*(?:[.,][0-9]{2})?)'
+        
+        # Dividir HTML em seções para análise mais precisa
+        # Procurar por seções que contenham informações de preços organizadas
+        
+        # Estratégia 1: Procurar por padrões estruturados (wear condition seguido de preço)
+        for wear_key, wear_patterns_list in wear_patterns.items():
+            for wear_pattern in wear_patterns_list:
+                # Procurar todas as ocorrências do padrão de wear
+                for match in re.finditer(wear_pattern, html_text, re.IGNORECASE):
+                    # Pegar contexto maior ao redor (até 300 caracteres)
+                    start_pos = max(0, match.start() - 150)
+                    end_pos = min(len(html_text), match.end() + 300)
+                    context = html_text[start_pos:end_pos]
+                    context_lower = context.lower()
+                    
+                    # Verificar se é StatTrak (procurar antes do wear pattern)
+                    is_stattrak = False
+                    # Verificar se há "stattrak" antes do wear pattern no contexto
+                    pre_context = html_text[max(0, match.start() - 100):match.start()].lower()
+                    if 'stattrak' in pre_context or 'stattrak' in context_lower[:200]:
+                        is_stattrak = True
+                    
+                    # Verificar se não é "Not possible"
+                    if 'not possible' in context_lower:
+                        print(f"DEBUGGING: {wear_key} marcado como 'Not possible'")
+                        continue
+                    
+                    # Procurar preço no contexto (procurar após o wear pattern)
+                    post_context = context[match.end() - start_pos:]
+                    price_matches = re.findall(price_pattern, post_context)
+                    
+                    if price_matches:
+                        # Pegar o primeiro preço válido encontrado após o wear pattern
+                        for symbol, price_text in price_matches:
+                            try:
+                                # Converter preço
+                                if symbol == 'R$':
+                                    # Formato brasileiro: R$ 1.234,56
+                                    price_value = float(price_text.replace('.', '').replace(',', '.'))
+                                else:
+                                    # Formato internacional: $1234.56
+                                    price_value = float(price_text.replace(',', ''))
+                                
+                                # Validar preço (deve ser razoável)
+                                if 0.01 <= price_value <= 100000:
+                                    if is_stattrak:
+                                        if result["prices"]["stattrak"][wear_key] is None:
+                                            result["prices"]["stattrak"][wear_key] = price_value
+                                            currency_map = {'$': 'USD', 'R$': 'BRL', '€': 'EUR', '£': 'GBP', '¥': 'CNY'}
+                                            result["currency"] = currency_map.get(symbol, 'USD')
+                                            print(f"DEBUGGING: Preço StatTrak {wear_key}: {symbol}{price_value}")
+                                    else:
+                                        if result["prices"]["normal"][wear_key] is None:
+                                            result["prices"]["normal"][wear_key] = price_value
+                                            currency_map = {'$': 'USD', 'R$': 'BRL', '€': 'EUR', '£': 'GBP', '¥': 'CNY'}
+                                            result["currency"] = currency_map.get(symbol, 'USD')
+                                            print(f"DEBUGGING: Preço Normal {wear_key}: {symbol}{price_value}")
+                                    break
+                            except ValueError as e:
+                                print(f"DEBUGGING: Erro ao converter preço '{price_text}': {e}")
+                                continue
+                
+                # Se já encontrou preço para este wear (normal ou stattrak), passar para o próximo
+                if result["prices"]["normal"][wear_key] is not None or result["prices"]["stattrak"][wear_key] is not None:
+                    break
+        
+        # Calcular range de preços
+        all_price_values = []
+        for wear_prices in [result["prices"]["normal"], result["prices"]["stattrak"]]:
+            for price in wear_prices.values():
+                if price is not None:
+                    all_price_values.append(price)
+        
+        if all_price_values:
+            result["price_range"] = {
+                "min": min(all_price_values),
+                "max": max(all_price_values)
+            }
+            # Usar preço médio como price padrão (ou Field-Tested se disponível)
+            if result["prices"]["normal"]["field_tested"]:
+                result["price"] = result["prices"]["normal"]["field_tested"]
+            else:
+                result["price"] = sum(all_price_values) / len(all_price_values)
+        else:
+            result["price_range"] = {"min": 0, "max": 0}
+            result["price"] = 0
+        
+        print(f"DEBUGGING: Dados completos extraídos para {base_name}")
+        return result
+        
+    except Exception as e:
+        print(f"DEBUGGING: Erro durante scraping completo do CSGOSkins.gg para {market_hash_name}: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 def get_item_price_via_csgostash(market_hash_name: str, currency: int = STEAM_MARKET_CURRENCY) -> Optional[Dict]:
     """
     Obtém o preço de um item através de scraping do CSGOSkins.gg.
@@ -705,19 +976,19 @@ def _get_currency_from_symbol(symbol: str) -> str:
 def get_item_price(market_hash_name: str, currency: int = None, appid: int = None) -> Dict:
     """
     Obtém o preço atual de um item no mercado.
-    Primeiro verifica no banco de dados SQLite, e se não encontrar ou estiver desatualizado,
-    usa o método de scraping do CSGOStash e salva o resultado no banco.
+    Primeiro verifica no banco de dados, e se não encontrar ou estiver desatualizado,
+    usa o método de scraping completo do CSGOSkins.gg e salva o resultado no banco.
     
     Args:
-        market_hash_name: Nome formatado do item para o mercado
+        market_hash_name: Nome formatado do item para o mercado (pode incluir wear condition)
         currency: Código da moeda (padrão definido em configuração)
-        appid: ID da aplicação na Steam (não utilizado em scraping do CSGOStash)
+        appid: ID da aplicação na Steam
         
     Returns:
-        Dicionário com o preço, a moeda e outras informações do item
+        Dicionário com o preço, a moeda e outras informações do item (incluindo dados completos)
         
     Raises:
-        Exception: Se não for possível obter o preço atual do CSGOStash
+        Exception: Se não for possível obter o preço atual do CSGOSkins.gg
     """
     if currency is None:
         currency = STEAM_MARKET_CURRENCY
@@ -732,48 +1003,125 @@ def get_item_price(market_hash_name: str, currency: int = None, appid: int = Non
         return price_cache[cache_key]
     
     # Verificar se o item está no banco de dados
-    db_price = get_skin_price(market_hash_name, currency, appid)
-    if db_price is not None:
-        print(f"Usando preço do banco de dados para {market_hash_name}: {db_price}")
-        # Atualizar o cache em memória
+    db_result = get_skin_price(market_hash_name, currency, appid)
+    if db_result is not None:
+        print(f"Usando dados do banco de dados para {market_hash_name}")
+        # Construir resposta com dados do banco
         price_data = {
-            "price": db_price,
+            "price": db_result["price"],
             "currency": "USD" if currency == 1 else "BRL" if currency == 7 else "EUR" if currency == 3 else "UNKNOWN",
             "source": "database"
         }
+        
+        # Adicionar dados detalhados se disponíveis
+        if db_result.get("detailed_data"):
+            if isinstance(db_result["detailed_data"], str):
+                # Se for string JSON, fazer parse
+                try:
+                    price_data["detailed_data"] = json.loads(db_result["detailed_data"])
+                except:
+                    price_data["detailed_data"] = db_result["detailed_data"]
+            else:
+                price_data["detailed_data"] = db_result["detailed_data"]
+        
+        if db_result.get("image_url"):
+            price_data["image_url"] = db_result["image_url"]
+        
         price_cache[cache_key] = price_data
         return price_data
     
-    # Buscar preço via scraping do CSGOStash em vez do Steam
+    # Buscar dados completos via scraping do CSGOSkins.gg
     try:
-        print(f"Buscando preço via CSGOStash para {market_hash_name}")
-        price_data = get_item_price_via_csgostash(market_hash_name, currency)
+        print(f"Buscando dados completos via CSGOSkins.gg para {market_hash_name}")
+        detailed_data = get_item_detailed_data_via_csgostash(market_hash_name, currency)
         
         # Verificar se o scraping retornou dados válidos
-        if not price_data or price_data.get("price", 0) <= 0:
-            raise Exception(f"Não foi possível obter o preço atual de {market_hash_name} no CSGOStash")
+        if not detailed_data:
+            # Fallback para método antigo se o novo falhar
+            print(f"Scraping completo falhou, tentando método antigo...")
+            price_data = get_item_price_via_csgostash(market_hash_name, currency)
+            if not price_data or price_data.get("price", 0) <= 0:
+                raise Exception(f"Não foi possível obter o preço atual de {market_hash_name} no CSGOSkins.gg")
+            
+            processed_price = process_scraped_price(market_hash_name, price_data["price"])
+            if processed_price <= 0:
+                raise Exception(f"O processamento resultou em um preço inválido para {market_hash_name}")
+            
+            price_data["price"] = processed_price
+            price_data["processed"] = True
+            price_cache[cache_key] = price_data
+            save_skin_price(market_hash_name, processed_price, currency, appid)
+            return price_data
         
-        # Registrar que o scraping foi feito para este item
-        update_last_scrape_time(market_hash_name, currency, appid)
+        # Extrair preço específico se market_hash_name contém wear condition
+        extracted_price = detailed_data.get("price", 0)
+        is_stattrak = "StatTrak" in market_hash_name or "stattrak" in market_hash_name.lower()
         
-        # Processar o preço obtido (sem aplicar limites ou filtragem)
-        processed_price = process_scraped_price(market_hash_name, price_data["price"])
+        # Tentar extrair wear condition do nome
+        wear_condition = None
+        wear_key_map = {
+            "Factory New": "factory_new",
+            "Minimal Wear": "minimal_wear",
+            "Field-Tested": "field_tested",
+            "Well-Worn": "well_worn",
+            "Battle-Scarred": "battle_scarred"
+        }
         
-        # Verificar se o processamento retornou um preço válido
+        for wear_name, wear_key in wear_key_map.items():
+            if wear_name.lower() in market_hash_name.lower():
+                wear_condition = wear_key
+                break
+        
+        # Se encontrou wear condition específica, usar esse preço
+        if wear_condition and detailed_data.get("prices"):
+            if is_stattrak and detailed_data["prices"]["stattrak"].get(wear_condition):
+                extracted_price = detailed_data["prices"]["stattrak"][wear_condition]
+            elif detailed_data["prices"]["normal"].get(wear_condition):
+                extracted_price = detailed_data["prices"]["normal"][wear_condition]
+        
+        # Processar o preço obtido
+        processed_price = process_scraped_price(market_hash_name, extracted_price)
+        
         if processed_price <= 0:
             raise Exception(f"O processamento resultou em um preço inválido para {market_hash_name}")
         
-        # Atualizar o valor processado mantendo as outras informações
-        price_data["price"] = processed_price
-        price_data["processed"] = True
+        # Registrar que o scraping foi feito
+        update_last_scrape_time(market_hash_name, currency, appid)
+        
+        # Preparar dados para retorno
+        price_data = {
+            "price": processed_price,
+            "currency": detailed_data.get("currency", "USD"),
+            "source": "csgoskins.gg",
+            "processed": True,
+            "market_hash_name": detailed_data.get("market_hash_name", market_hash_name),
+            "image_url": detailed_data.get("image_url"),
+            "rarity": detailed_data.get("rarity"),
+            "category": detailed_data.get("category"),
+            "weapon": detailed_data.get("weapon"),
+            "prices": detailed_data.get("prices"),
+            "price_range": detailed_data.get("price_range"),
+            "timestamp": detailed_data.get("timestamp")
+        }
         
         # Armazenar no cache e banco de dados
         price_cache[cache_key] = price_data
-        save_skin_price(market_hash_name, processed_price, currency, appid)  # Salvar no banco
+        
+        # Salvar no banco com dados detalhados
+        save_skin_price(
+            market_hash_name, 
+            processed_price, 
+            currency, 
+            appid,
+            detailed_data=detailed_data,
+            image_url=detailed_data.get("image_url")
+        )
         
         return price_data
     except Exception as e:
         print(f"Erro ao fazer scraping para {market_hash_name}: {e}")
+        import traceback
+        traceback.print_exc()
         # Propagar o erro para o frontend em vez de usar fallback
         raise Exception(f"Erro ao obter preço para {market_hash_name}: {str(e)}")
 
