@@ -1,105 +1,358 @@
-# Neon.tech Database Configuration
+# 🗄️ Neon.tech Database Configuration Guide
 
-This project uses PostgreSQL database hosted on [Neon.tech](https://neon.tech/).
+![Neon](https://img.shields.io/badge/Neon.Tech-PostgreSQL-00E599.svg?style=for-the-badge&logo=postgresql&logoColor=white)
+![Status](https://img.shields.io/badge/Status-Configured-success.svg?style=for-the-badge)
 
-## Connection String
+> **Complete guide** for setting up and configuring PostgreSQL database on Neon.tech for the CS2 Valuation API.
 
-The connection string for the Neon.tech database is:
+---
+
+## 📋 Table of Contents
+
+- [Overview](#-overview)
+- [Connection String](#-connection-string)
+- [Local Development Setup](#-local-development-setup)
+- [Render Deployment Configuration](#-render-deployment-configuration)
+- [Database Initialization](#-database-initialization)
+- [Testing Connection](#-testing-connection)
+- [SSL Configuration](#-ssl-configuration)
+- [Troubleshooting](#-troubleshooting)
+- [Best Practices](#-best-practices)
+
+---
+
+## 🎯 Overview
+
+This project uses **Neon.tech** for PostgreSQL hosting, providing:
+
+| Feature | Benefit |
+|---------|---------|
+| 🚀 **Serverless** | Automatic scaling, no server management |
+| 🔒 **SSL/TLS** | Encrypted connections required |
+| 💰 **Free Tier** | Generous free tier for development |
+| 🔄 **Connection Pooling** | Built-in pooling for better performance |
+| 📊 **Monitoring** | Built-in metrics and monitoring |
+
+---
+
+## 🔗 Connection String
+
+### Current Configuration
 
 ```
-postgresql://neondb_owner:npg_SLMYc7bVQ1KR@ep-icy-hill-aemvtr7r-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+postgresql://neondb_owner:npg_IQagKh8yZE4A@ep-icy-hill-aemvtr7r-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
 ```
 
-## Configuration
+### Connection String Components
 
-### Local Development
+| Component | Value | Description |
+|-----------|-------|-------------|
+| **Protocol** | `postgresql://` | Connection protocol |
+| **User** | `neondb_owner` | Database username |
+| **Password** | `npg_IQagKh8yZE4A` | Database password |
+| **Host** | `ep-icy-hill-aemvtr7r-pooler.c-2.us-east-2.aws.neon.tech` | Neon.tech endpoint (with pooling) |
+| **Database** | `neondb` | Database name |
+| **SSL Mode** | `require` | SSL connection required |
+| **Channel Binding** | `require` | Additional security layer |
 
-1. Create a `.env` file in the project root (copy from `.env.example` if available)
-2. Add the `DATABASE_URL` environment variable:
+> **Note**: The `-pooler` suffix in the hostname enables connection pooling, which is recommended for serverless applications.
+
+---
+
+## 💻 Local Development Setup
+
+### Step 1: Create `.env` File
+
+Create a `.env` file in the project root:
 
 ```bash
-DATABASE_URL=postgresql://neondb_owner:npg_SLMYc7bVQ1KR@ep-icy-hill-aemvtr7r-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+# Copy from example
+cp env.example .env
 ```
 
-### Render Deployment
+### Step 2: Configure Environment Variables
 
-1. Go to your Render dashboard
-2. Select your web service
-3. Go to "Environment" tab
-4. Add the following environment variable:
-   - **Key**: `DATABASE_URL`
-   - **Value**: `postgresql://neondb_owner:npg_SLMYc7bVQ1KR@ep-icy-hill-aemvtr7r-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require`
+Edit `.env` with your Neon.tech credentials:
+
+```bash
+# Database Configuration
+DATABASE_URL="postgresql://neondb_owner:npg_IQagKh8yZE4A@ep-icy-hill-aemvtr7r-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+
+# PostgreSQL CLI Tools
+PGUSER=neondb_owner
+PGPASSWORD=npg_IQagKh8yZE4A
+
+# Optional
+PYTHON_VERSION=3.11.0
+```
+
+### Step 3: Verify Configuration
+
+The application will automatically load variables from `.env` using `python-dotenv`.
+
+---
+
+## ☁️ Render Deployment Configuration
+
+### Environment Variables Setup
+
+In Render Dashboard → Your Service → **"Environment"**:
+
+| Variable | Value |
+|----------|-------|
+| `DATABASE_URL` | `postgresql://neondb_owner:npg_IQagKh8yZE4A@ep-icy-hill-aemvtr7r-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require` |
+| `PGUSER` | `neondb_owner` |
+| `PGPASSWORD` | `npg_IQagKh8yZE4A` |
 
 ### Alternative: Separate Components
 
-If you prefer to use separate environment variables instead of the connection string:
+If you prefer separate components:
 
 ```bash
 DB_HOST=ep-icy-hill-aemvtr7r-pooler.c-2.us-east-2.aws.neon.tech
 DB_PORT=5432
 DB_NAME=neondb
 DB_USER=neondb_owner
-DB_PASSWORD=npg_SLMYc7bVQ1KR
+DB_PASSWORD=npg_IQagKh8yZE4A
 ```
 
-**Note**: When using separate components, SSL mode will be automatically set to `require` by the application.
+> **Note**: The application will automatically add SSL parameters when using separate components.
 
-## Database Initialization
+---
 
-After configuring the connection string, initialize the database tables:
+## 🗄️ Database Initialization
 
-### Option 1: Via API Endpoint
+### Method 1: Via API Endpoint
+
+After deployment, initialize tables:
 
 ```bash
 curl "https://your-service.onrender.com/api/db/init?admin_key=YOUR_ADMIN_KEY"
 ```
 
-### Option 2: Via Migration Script
+**Response**:
+```json
+{
+  "success": true,
+  "duration": 1.23,
+  "tables_created": 2,
+  "indices_created": 1,
+  "metadata_records": 2
+}
+```
+
+### Method 2: Via Migration Script
+
+Run locally pointing to Neon.tech:
 
 ```bash
-export DATABASE_URL="postgresql://neondb_owner:npg_SLMYc7bVQ1KR@ep-icy-hill-aemvtr7r-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+export DATABASE_URL="postgresql://neondb_owner:npg_IQagKh8yZE4A@ep-icy-hill-aemvtr7r-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 python migrate_db.py
 ```
 
-## Testing Connection
+### Method 3: Manual SQL
 
-You can test the connection using psql:
+Connect via `psql` and run:
 
-```bash
-psql 'postgresql://neondb_owner:npg_SLMYc7bVQ1KR@ep-icy-hill-aemvtr7r-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require'
+```sql
+CREATE TABLE IF NOT EXISTS skin_prices (
+    id SERIAL PRIMARY KEY,
+    market_hash_name TEXT NOT NULL,
+    price REAL NOT NULL,
+    currency INTEGER NOT NULL,
+    app_id INTEGER NOT NULL,
+    last_updated TIMESTAMP NOT NULL,
+    last_scraped TIMESTAMP NOT NULL,
+    update_count INTEGER DEFAULT 1,
+    UNIQUE(market_hash_name, currency, app_id)
+);
+
+CREATE TABLE IF NOT EXISTS metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_skin_prices_market_hash_name
+ON skin_prices(market_hash_name);
 ```
 
-Or using the host directly:
+---
+
+## 🧪 Testing Connection
+
+### Using psql
 
 ```bash
-psql -h pg.neon.tech
+# Full connection string
+psql 'postgresql://neondb_owner:npg_IQagKh8yZE4A@ep-icy-hill-aemvtr7r-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require'
+
+# Or using environment variables
+export PGUSER=neondb_owner
+export PGPASSWORD=npg_IQagKh8yZE4A
+psql -h ep-icy-hill-aemvtr7r-pooler.c-2.us-east-2.aws.neon.tech -d neondb
 ```
 
-## SSL Configuration
+### Using Python Script
 
-The Neon.tech database requires SSL connections with:
-- `sslmode=require`: SSL connection is required
-- `channel_binding=require`: Channel binding is required for additional security
+Create `test_connection.py`:
 
-These parameters are already included in the connection string and will be used automatically by the application.
+```python
+import os
+from dotenv import load_dotenv
+import psycopg2
 
-## Troubleshooting
+load_dotenv()
 
-### Connection Issues
+try:
+    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    print("✅ Connection successful!")
+    cursor = conn.cursor()
+    cursor.execute("SELECT version();")
+    print(f"PostgreSQL version: {cursor.fetchone()[0]}")
+    conn.close()
+except Exception as e:
+    print(f"❌ Connection failed: {e}")
+```
 
-1. **SSL Error**: Ensure `sslmode=require` is in your connection string
-2. **Channel Binding Error**: Ensure `channel_binding=require` is in your connection string
-3. **Timeout**: Check if the Neon.tech service is active and accessible
-4. **Authentication**: Verify credentials are correct
+Run:
+```bash
+python test_connection.py
+```
 
-### Connection Pooling
+### Using API Test Script
 
-Neon.tech uses connection pooling. The connection string includes `-pooler` in the hostname, which enables connection pooling for better performance.
+The project includes `test_db_connection.py`:
 
-## Notes
+```bash
+python test_db_connection.py
+```
 
-- The database uses connection pooling for better performance
-- SSL is required for all connections
-- Channel binding provides additional security
-- The application will automatically retry with different SSL modes if the initial connection fails
+---
 
+## 🔒 SSL Configuration
+
+### Why SSL is Required
+
+Neon.tech requires SSL/TLS encryption for all connections. The connection string includes:
+
+- `sslmode=require`: Enforces SSL connection
+- `channel_binding=require`: Additional security layer
+
+### SSL Modes
+
+The application automatically tries these modes in order:
+
+1. `require` - SSL required (used by Neon.tech)
+2. `prefer` - SSL preferred, fallback to non-SSL
+3. `verify-ca` - Verify certificate authority
+4. `verify-full` - Full certificate verification
+
+### Troubleshooting SSL
+
+If you encounter SSL errors:
+
+1. **Verify connection string** includes `sslmode=require`
+2. **Check certificate** validity
+3. **Test connection** using `psql` first
+4. **Review logs** for specific SSL error messages
+
+---
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+#### 1. Connection Timeout
+
+**Symptoms**: Connection hangs or times out
+
+**Solutions**:
+- Verify hostname is correct
+- Check network connectivity
+- Ensure SSL parameters are included
+- Try connection pooling endpoint (`-pooler`)
+
+#### 2. Authentication Failed
+
+**Symptoms**: `FATAL: password authentication failed`
+
+**Solutions**:
+- Verify username and password
+- Check for special characters in password (may need URL encoding)
+- Ensure user has proper permissions
+
+#### 3. SSL Required Error
+
+**Symptoms**: `SSL connection is required`
+
+**Solutions**:
+- Add `sslmode=require` to connection string
+- Verify `channel_binding=require` is present
+- Check Neon.tech SSL requirements
+
+#### 4. Database Does Not Exist
+
+**Symptoms**: `database "neondb" does not exist`
+
+**Solutions**:
+- Verify database name in connection string
+- Create database in Neon.tech dashboard if needed
+- Check database name spelling
+
+### Getting Help
+
+1. **Check Neon.tech Dashboard**: Monitor connection metrics
+2. **Review Application Logs**: Check for specific error messages
+3. **Test Connection Locally**: Isolate deployment vs. connection issues
+4. **Neon.tech Support**: Contact support for database-specific issues
+
+---
+
+## 💡 Best Practices
+
+### Connection Management
+
+- ✅ **Use Connection Pooling**: Always use `-pooler` endpoint
+- ✅ **Set Timeouts**: Configure appropriate connection timeouts
+- ✅ **Monitor Connections**: Track active connections in Neon dashboard
+- ✅ **Close Connections**: Always close connections after use
+
+### Security
+
+- ✅ **Never Commit Credentials**: Keep `.env` in `.gitignore`
+- ✅ **Use SSL**: Always require SSL connections
+- ✅ **Rotate Passwords**: Regularly update database passwords
+- ✅ **Limit Access**: Restrict database access to necessary IPs
+
+### Performance
+
+- ✅ **Use Indexes**: Ensure proper indexes on frequently queried columns
+- ✅ **Monitor Queries**: Track slow queries in Neon dashboard
+- ✅ **Optimize Connections**: Use connection pooling for serverless
+- ✅ **Cache When Possible**: Use application-level caching
+
+### Backup & Recovery
+
+- ✅ **Enable Point-in-Time Recovery**: Available in Neon.tech paid plans
+- ✅ **Regular Backups**: Export data regularly for free tier
+- ✅ **Test Restores**: Verify backup restoration process
+- ✅ **Document Procedures**: Keep backup/restore procedures documented
+
+---
+
+## 📚 Additional Resources
+
+- [Neon.tech Documentation](https://neon.tech/docs)
+- [PostgreSQL SSL Configuration](https://www.postgresql.org/docs/current/libpq-ssl.html)
+- [Connection String Format](https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING)
+- [Project README](README.md)
+- [Render Deployment Guide](RENDER_DEPLOY.md)
+
+---
+
+<div align="center">
+
+**Database Ready?** [Deploy on Render](RENDER_DEPLOY.md) · [View API Docs](README.md#api-documentation)
+
+</div>
