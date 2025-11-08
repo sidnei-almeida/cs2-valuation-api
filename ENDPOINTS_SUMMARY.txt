@@ -1,0 +1,98 @@
+CS2 Valuation API – Endpoint Summary
+===================================
+Base URL (Render): https://<your-service>.onrender.com
+
+Legend
+------
+[Public]     Accessible without authentication
+[Auth]       Requires Steam login (JWT token via /auth/steam flow)
+[Admin]      Requires admin key or elevated access
+[Dev]        Development/debug endpoints (avoid using in production)
+
+Public Endpoints
+----------------
+GET /                                    [Public]
+    Quick service overview, available endpoints, current version.
+
+GET /inventory/{steamid}                 [Public]
+    Returns a summarized inventory valuation for any public Steam account.
+    - Params: cors (bool, optional) forces permissive CORS headers.
+    - Response: totals, item list, split between storage units and market items.
+
+GET /inventory/full/{steamid}            [Public]
+    Detailed inventory analysis grouped by item categories (weapons, stickers, etc.).
+    - Response: same data as basic endpoint plus `items_by_category` section.
+
+GET /case/{case_name}                    [Public]
+    Details for a specific case/loot box.
+    - Response: case metadata, drop list, odds (when available).
+
+GET /price/{market_hash_name}            [Public]
+    Current price snapshot for a specific item.
+    - Response: price, currency, data source info, timestamp.
+
+GET /cases                               [Public]
+    List of supported cases with optional current price information.
+
+GET /api/status                          [Public]
+    Health/status document with scheduler info, scraping status, DB availability.
+
+GET /healthcheck                         [Public]
+    Plain-text `OK` if the API and database are reachable (used by Render).
+
+Authenticated Endpoints
+-----------------------
+GET /auth/steam                          [Public -> Auth]
+    Redirects the user to Steam OpenID. Accepts optional query params:
+    - redirect_local=true  → redirects back to localhost (development)
+    - return_url=<url>     → custom front-end return URL.
+
+GET /auth/steam/callback                 [Auth]
+    Steam OpenID callback. Generates JWT token and redirects to the front-end.
+    - Front-end receives `?token=<jwt>` on success.
+
+GET /my/inventory                        [Auth]
+    Same data as `/inventory/{steamid}`, but for the authenticated Steam user.
+
+GET /my/inventory/full                   [Auth]
+    Same data as `/inventory/full/{steamid}` for the authenticated user.
+
+GET /my/inventory/complete               [Auth]
+    Full inventory including Storage Unit contents.
+    - Query params: session_id, steam_token (required for protected inventories).
+
+GET /db/stats                            [Auth]
+    Database statistics (number of prices cached, last updates, scheduler status).
+
+POST /db/update                          [Auth]
+    Forces immediate price updates.
+    - Query param: max_items (int, default 100) defines how many items to refresh.
+
+Administration / Utility
+------------------------
+GET /api/db/init                         [Admin]
+    Initializes database schema. Requires `admin_key` query parameter.
+
+GET /cors-test                           [Public]
+    Returns a simple JSON response with permissive CORS headers.
+
+GET /auth/test-redirect                  [Dev]
+    Test endpoint to inspect redirect parameters during auth flow.
+
+GET /test-csgostash/{market_hash_name}   [Dev]
+    Manual test for the CSGOStash scraping routine (logs debugging info).
+
+Notes for Front-end Integration
+--------------------------------
+• Authentication flow:
+  1. Redirect user to `/auth/steam?return_url=<your_frontend_url>`.
+  2. Steam redirects to `/auth/steam/callback`, which forwards to your front-end with `?token=<jwt>`.
+  3. Send the JWT token as `Authorization: Bearer <token>` or `?token=<token>` when calling Auth endpoints.
+
+• Inventory endpoints support heavy data. Consider caching results on the front-end and showing loading states.
+
+• Use `/api/status` to display maintenance messages or check if scraping/database components are online.
+
+• For admin tooling (if applicable), `/db/update` and `/db/stats` allow manual interventions.
+
+Keep this file accessible for front-end developers to quickly reference available endpoints and required parameters.
