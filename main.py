@@ -23,17 +23,17 @@ from utils.database import init_db, get_stats, get_db_connection
 from utils.price_updater import run_scheduler, force_update_now, get_scheduler_status, schedule_weekly_update
 from auth.steam_auth import steam_login_url, validate_steam_login, create_jwt_token, verify_jwt_token, SECRET_KEY, ALGORITHM
 
-# Importe para o inicializador de banco de dados
-from migrate_railway import init_database
+# Import for database initializer
+from migrate_db import init_database
 
-# Classe personalizada para aceitar token via URL ou header
+# Custom class to accept token via URL or header
 class OAuth2PasswordBearerWithCookie(OAuth2):
     def __init__(self, tokenUrl: str, auto_error: bool = True):
         flows = OAuthFlowsModel(password={"tokenUrl": tokenUrl, "scopes": {}})
         super().__init__(flows=flows, scheme_name="Bearer", auto_error=auto_error)
 
     async def __call__(self, request: Request):
-        # Tenta obter o token via header Authorization primeiro
+        # Try to get token via Authorization header first
         authorization = request.headers.get("Authorization")
         scheme, param = "", ""
         
@@ -50,7 +50,7 @@ class OAuth2PasswordBearerWithCookie(OAuth2):
                     return None
             return param
         
-        # Se não encontrar no header, tenta obter via parâmetro URL
+        # If not found in header, try to get via URL parameter
         token = request.query_params.get("token")
         if token:
             return token
@@ -82,8 +82,8 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1",        # Qualquer porta em localhost
     "https://elite-skins-2025.github.io",  # GitHub Pages
     "file://",  # Para suportar arquivos abertos localmente
-    "https://cotacao-cs2.up.railway.app",  # Railway
-    "https://cotacaocs2-production.up.railway.app",  # Railway produção
+    # Adicione aqui a URL específica do seu serviço Render quando souber
+    # Exemplo: "https://cs2-valuation-api.onrender.com"
     "*"  # Último recurso - permitir qualquer origem em desenvolvimento
 ]
 
@@ -94,23 +94,23 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
-    max_age=86400  # Cache preflight por 24h
+    max_age=86400  # Cache preflight for 24h
 )
 
-# Middleware personalizado para adicionar cabeçalhos CORS em todas as respostas
-# Isso garante que mesmo em caso de erro 500/502, os cabeçalhos CORS estarão presentes
+# Custom middleware to add CORS headers to all responses
+# This ensures that even in case of 500/502 errors, CORS headers will be present
 class CustomCORSMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Obter a origem da requisição
+        # Get request origin
         origin = request.headers.get("origin")
         
-        # Para requisições OPTIONS (preflight), responder imediatamente
+        # For OPTIONS requests (preflight), respond immediately
         if request.method == "OPTIONS":
             response = Response()
             if origin and (origin in ALLOWED_ORIGINS or "*" in ALLOWED_ORIGINS):
                 response.headers["Access-Control-Allow-Origin"] = origin
             else:
-                # Se não houver origem ou não for permitida, usar wildcard
+                # If no origin or not allowed, use wildcard
                 response.headers["Access-Control-Allow-Origin"] = "*"
             
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
@@ -120,10 +120,10 @@ class CustomCORSMiddleware(BaseHTTPMiddleware):
             return response
             
         try:
-            # Processar a requisição normalmente
+            # Process request normally
             response = await call_next(request)
             
-            # Adicionar cabeçalhos CORS na resposta
+            # Add CORS headers to response
             if origin and (origin in ALLOWED_ORIGINS or "*" in ALLOWED_ORIGINS):
                 response.headers["Access-Control-Allow-Origin"] = origin
             else:
@@ -135,8 +135,8 @@ class CustomCORSMiddleware(BaseHTTPMiddleware):
             
             return response
         except Exception as e:
-            # Em caso de erro, garantir que a resposta ainda tenha os cabeçalhos CORS
-            print(f"Erro no middleware: {e}")
+            # In case of error, ensure response still has CORS headers
+            print(f"Middleware error: {e}")
             response = Response(status_code=500)
             
             if origin and (origin in ALLOWED_ORIGINS or "*" in ALLOWED_ORIGINS):
@@ -152,22 +152,22 @@ class CustomCORSMiddleware(BaseHTTPMiddleware):
             
             return response
 
-# Adicionar o middleware personalizado após o middleware do FastAPI
+# Add custom middleware after FastAPI middleware
 app.add_middleware(CustomCORSMiddleware)
 
-# Lista de endpoints para a página inicial
+# List of endpoints for the home page
 AVAILABLE_ENDPOINTS = [
     "/inventory/{steamid}",
     "/inventory/full/{steamid}",
-    "/my/inventory",  # Inventário do usuário autenticado
-    "/my/inventory/full",  # Análise por categoria do usuário autenticado
-    "/my/inventory/complete",  # Inventário completo do usuário autenticado com conteúdo das unidades
+    "/my/inventory",  # Authenticated user's inventory
+    "/my/inventory/full",  # Category-based analysis for authenticated user
+    "/my/inventory/complete",  # Complete inventory for authenticated user with unit contents
     "/case/{case_name}",
     "/price/{market_hash_name}",
     "/cases",
     "/api/status",
-    "/auth/steam",  # Autenticação com a Steam
-    "/auth/steam/callback"  # Callback da autenticação
+    "/auth/steam",  # Steam authentication
+    "/auth/steam/callback"  # Authentication callback
 ]
 
 
@@ -176,27 +176,27 @@ async def root():
     return {
         "message": "CS2 Valuation API (Storage Unit Access Version)",
         "features": [
-            "Scraping exclusivo para todos os preços de itens",
-            "Classificação de itens por origem (Unidades de Armazenamento ou Mercado)",
-            "Análise de inventário por categorias",
-            "Acesso ao conteúdo das Unidades de Armazenamento (apenas do próprio usuário autenticado)"
+            "Exclusive scraping for all item prices",
+            "Item classification by source (Storage Units or Market)",
+            "Inventory analysis by categories",
+            "Access to Storage Unit contents (only for authenticated user's own units)"
         ],
-        "endpoints_públicos": [
-            "/inventory/{steamid} - Análise básica de inventário de terceiros",
-            "/inventory/full/{steamid} - Análise por categoria de inventário de terceiros",
-            "/price/{market_hash_name} - Preço de um item específico",
-            "/case/{case_name} - Detalhes de uma caixa específica",
-            "/cases - Lista de caixas disponíveis",
-            "/api/status - Status do sistema"
+        "public_endpoints": [
+            "/inventory/{steamid} - Basic inventory analysis for third parties",
+            "/inventory/full/{steamid} - Category-based inventory analysis for third parties",
+            "/price/{market_hash_name} - Price of a specific item",
+            "/case/{case_name} - Details of a specific case",
+            "/cases - List of available cases",
+            "/api/status - System status"
         ],
-        "endpoints_autenticados": [
-            "/my/inventory - Seu próprio inventário básico",
-            "/my/inventory/full - Seu próprio inventário com categorias",
-            "/my/inventory/complete - Seu inventário completo incluindo conteúdo de Unidades de Armazenamento"
+        "authenticated_endpoints": [
+            "/my/inventory - Your own basic inventory",
+            "/my/inventory/full - Your own inventory with categories",
+            "/my/inventory/complete - Your complete inventory including Storage Unit contents"
         ],
-        "autenticação": [
+        "authentication": [
             "/auth/steam - Login via Steam",
-            "/auth/steam/callback - Retorno após autenticação"
+            "/auth/steam/callback - Return after authentication"
         ],
         "version": "0.5.0"
     }
@@ -204,18 +204,18 @@ async def root():
 
 @app.get("/inventory/{steamid}")
 async def inventory(steamid: str, response: Response, request: Request = None, cors: bool = Query(False)):
-    """Retorna os itens e preços estimados do inventário público, diferenciando entre Unidades de Armazenamento e itens do mercado"""
-    # Verificar se o parâmetro cors está presente e definir headers mais diretamente
-    # Isso garante compatibilidade com requisições de navegadores
+    """Returns items and estimated prices from public inventory, differentiating between Storage Units and market items"""
+    # Check if cors parameter is present and set headers more directly
+    # This ensures compatibility with browser requests
     if cors or (request and "cors" in request.query_params):
-        # Para requisições explicitamente marcadas com cors=true, forçar os cabeçalhos
-        print(f"Parâmetro cors detectado para {steamid}. Adicionando cabeçalhos CORS explícitos.")
+        # For requests explicitly marked with cors=true, force headers
+        print(f"CORS parameter detected for {steamid}. Adding explicit CORS headers.")
         response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "*"
         response.headers["Access-Control-Allow-Credentials"] = "true"
     else:
-        # Adicionar cabeçalhos CORS padrão para outras requisições
+        # Add default CORS headers for other requests
         origin = request.headers.get("origin", "*") if request else "*"
         if origin and (origin in ALLOWED_ORIGINS or "*" in ALLOWED_ORIGINS):
             response.headers["Access-Control-Allow-Origin"] = origin
@@ -227,15 +227,15 @@ async def inventory(steamid: str, response: Response, request: Request = None, c
         response.headers["Access-Control-Allow-Headers"] = "*"
     
     try:
-        print(f"Iniciando análise de inventário para {steamid}")
+        print(f"Starting inventory analysis for {steamid}")
         result = get_inventory_value(steamid)
         
-        # Garantir que os campos necessários existam
+        # Ensure required fields exist
         if "average_item_value" not in result:
             result["average_item_value"] = round(result["total_value"] / result["total_items"], 2) if result["total_items"] > 0 else 0
             
         if "most_valuable_item" not in result or result["most_valuable_item"] is None:
-            # Tentar encontrar o item mais valioso na lista
+            # Try to find the most valuable item in the list
             most_valuable = None
             highest_price = 0
             
@@ -251,11 +251,11 @@ async def inventory(steamid: str, response: Response, request: Request = None, c
             
             result["most_valuable_item"] = most_valuable
             
-        # Arredondar valores para facilitar exibição
+        # Round values for easier display
         result["total_value"] = round(result["total_value"], 2)
         result["average_item_value"] = round(result["average_item_value"], 2)
         
-        # Adicionar contagens por tipo de fonte se não existirem
+        # Add counts by source type if they don't exist
         if "storage_units_count" not in result:
             result["storage_units_count"] = len(result.get("storage_units", []))
         
@@ -274,18 +274,18 @@ async def inventory(steamid: str, response: Response, request: Request = None, c
             }
         }
         
-        print(f"Análise de inventário concluída para {steamid}: {len(result.get('items', []))} itens encontrados")
-        print(f"- Itens de Unidades de Armazenamento: {result['storage_units_count']}")
-        print(f"- Itens de Mercado: {result['market_items_count']}")
+        print(f"Inventory analysis completed for {steamid}: {len(result.get('items', []))} items found")
+        print(f"- Storage Unit items: {result['storage_units_count']}")
+        print(f"- Market items: {result['market_items_count']}")
         
         return result
     except Exception as e:
-        print(f"Erro ao processar inventário: {e}")
+        print(f"Error processing inventory: {e}")
         import traceback
         traceback.print_exc()
         
-        # Retornar um objeto com informação de erro que o frontend pode interpretar
-        # Os cabeçalhos CORS já foram configurados acima, então devem ser enviados mesmo com erro
+        # Return an error object that the frontend can interpret
+        # CORS headers were already configured above, so they should be sent even with error
         return {
             "steamid": steamid,
             "error": str(e),
@@ -299,8 +299,8 @@ async def inventory(steamid: str, response: Response, request: Request = None, c
 
 @app.get("/inventory/full/{steamid}")
 async def full_inventory_analysis(steamid: str, response: Response, request: Request = None):
-    """Retorna uma análise completa do inventário, categorizada por tipos de itens"""
-    # Adicionar cabeçalhos CORS manualmente para garantir que estarão presentes mesmo em caso de erro
+    """Returns a complete inventory analysis, categorized by item types"""
+    # Add CORS headers manually to ensure they are present even in case of error
     origin = request.headers.get("origin", "*") if request else "*"
     if origin and (origin in ALLOWED_ORIGINS or "*" in ALLOWED_ORIGINS):
         response.headers["Access-Control-Allow-Origin"] = origin
@@ -312,19 +312,19 @@ async def full_inventory_analysis(steamid: str, response: Response, request: Req
     response.headers["Access-Control-Allow-Headers"] = "*"
     
     try:
-        print(f"Iniciando análise detalhada de inventário para {steamid}")
+        print(f"Starting detailed inventory analysis for {steamid}")
         result = get_inventory_value(steamid, categorize=True)
         
-        # Vamos garantir que todos os campos importantes existam
+        # Let's ensure all important fields exist
         if "items_by_category" not in result:
             result["items_by_category"] = {}
         
-        # Garantir que os campos necessários existam
+        # Ensure required fields exist
         if "average_item_value" not in result:
             result["average_item_value"] = round(result["total_value"] / result["total_items"], 2) if result["total_items"] > 0 else 0
             
         if "most_valuable_item" not in result or result["most_valuable_item"] is None:
-            # Tentar encontrar o item mais valioso na lista
+            # Try to find the most valuable item in the list
             most_valuable = None
             highest_price = 0
             
@@ -340,7 +340,7 @@ async def full_inventory_analysis(steamid: str, response: Response, request: Req
             
             result["most_valuable_item"] = most_valuable
         
-        # Adicionar resumo por fonte se ainda não existir
+        # Add summary by source if it doesn't exist yet
         if "source_summary" not in result:
             storage_units = result.get("storage_units", [])
             market_items = result.get("market_items", [])
@@ -356,7 +356,7 @@ async def full_inventory_analysis(steamid: str, response: Response, request: Req
                 }
             }
         
-        # Adicionar análise por categoria
+        # Add analysis by category
         categories = {}
         for item in result.get("items", []):
             category = item.get("category", "Outros")
@@ -371,14 +371,14 @@ async def full_inventory_analysis(steamid: str, response: Response, request: Req
             categories[category]["value"] += item.get("total", 0)
             categories[category]["items"].append(item)
         
-        # Arredondar valores por categoria
+        # Round values by category
         for category in categories:
             categories[category]["value"] = round(categories[category]["value"], 2)
         
-        # Adicionar análise por categoria ao resultado
+        # Add category analysis to result
         result["category_summary"] = categories
         
-        # Arredondar valores para facilitar exibição
+        # Round values for easier display
         result["total_value"] = round(result["total_value"], 2)
         result["average_item_value"] = round(result["average_item_value"], 2)
         if result["most_valuable_item"]:
@@ -386,7 +386,7 @@ async def full_inventory_analysis(steamid: str, response: Response, request: Req
         
         return result
     except Exception as e:
-        print(f"Erro ao processar análise completa: {e}")
+        print(f"Error processing complete analysis: {e}")
         import traceback
         traceback.print_exc()
         return {
@@ -402,8 +402,8 @@ async def full_inventory_analysis(steamid: str, response: Response, request: Req
 
 @app.get("/case/{case_name}")
 async def case(case_name: str, response: Response, request: Request = None):
-    """Retorna informações sobre uma caixa específica"""
-    # Adicionar cabeçalhos CORS manualmente para garantir que estarão presentes mesmo em caso de erro
+    """Returns information about a specific case"""
+    # Add CORS headers manually to ensure they are present even in case of error
     origin = request.headers.get("origin", "*") if request else "*"
     if origin and (origin in ALLOWED_ORIGINS or "*" in ALLOWED_ORIGINS):
         response.headers["Access-Control-Allow-Origin"] = origin
@@ -416,14 +416,14 @@ async def case(case_name: str, response: Response, request: Request = None):
     
     case_info = get_case_details(case_name)
     if not case_info:
-        return {"error": "Caixa não encontrada", "name": case_name}
+        return {"error": "Case not found", "name": case_name}
     return case_info
 
 
 @app.get("/price/{market_hash_name}")
 async def price(market_hash_name: str, response: Response, request: Request = None):
-    """Retorna o preço de um item pelo seu market_hash_name"""
-    # Adicionar cabeçalhos CORS manualmente para garantir que estarão presentes mesmo em caso de erro
+    """Returns the price of an item by its market_hash_name"""
+    # Add CORS headers manually to ensure they are present even in case of error
     origin = request.headers.get("origin", "*") if request else "*"
     if origin and (origin in ALLOWED_ORIGINS or "*" in ALLOWED_ORIGINS):
         response.headers["Access-Control-Allow-Origin"] = origin
@@ -437,7 +437,7 @@ async def price(market_hash_name: str, response: Response, request: Request = No
     try:
         item_price_data = get_item_price(market_hash_name)
         
-        # Construir resposta com informações de moeda
+        # Build response with currency information
         response_data = {
             "market_hash_name": market_hash_name,
             "price": item_price_data["price"],
@@ -445,7 +445,7 @@ async def price(market_hash_name: str, response: Response, request: Request = No
             "timestamp": datetime.datetime.now().isoformat()
         }
         
-        # Adicionar campos opcionais se existirem
+        # Add optional fields if they exist
         if "sources_count" in item_price_data:
             response_data["sources_count"] = item_price_data["sources_count"]
             
@@ -462,8 +462,8 @@ async def price(market_hash_name: str, response: Response, request: Request = No
 
 @app.get("/cases")
 async def cases(response: Response, request: Request = None):
-    """Retorna a lista de caixas disponíveis"""
-    # Adicionar cabeçalhos CORS manualmente para garantir que estarão presentes mesmo em caso de erro
+    """Returns the list of available cases"""
+    # Add CORS headers manually to ensure they are present even in case of error
     origin = request.headers.get("origin", "*") if request else "*"
     if origin and (origin in ALLOWED_ORIGINS or "*" in ALLOWED_ORIGINS):
         response.headers["Access-Control-Allow-Origin"] = origin
@@ -477,7 +477,7 @@ async def cases(response: Response, request: Request = None):
     try:
         cases_list = list_cases()
         
-        # Adicionar preços atuais (apenas para API)
+        # Add current prices (API only)
         for case in cases_list:
             try:
                 case["current_price"] = get_item_price(case["name"])
@@ -486,15 +486,15 @@ async def cases(response: Response, request: Request = None):
                 
         return cases_list
     except Exception as e:
-        print(f"Erro ao processar lista de caixas: {e}")
-        # Retornar uma lista vazia em vez de um objeto com erro
+        print(f"Error processing case list: {e}")
+        # Return an empty list instead of an error object
         return []
 
 
 @app.get("/api/status")
 async def api_status(response: Response, request: Request = None):
-    """Retorna informações sobre o status atual da API, útil para monitoramento"""
-    # Adicionar cabeçalhos CORS manualmente para garantir que estarão presentes mesmo em caso de erro
+    """Returns information about the current API status, useful for monitoring"""
+    # Add CORS headers manually to ensure they are present even in case of error
     origin = request.headers.get("origin", "*") if request else "*"
     if origin and (origin in ALLOWED_ORIGINS or "*" in ALLOWED_ORIGINS):
         response.headers["Access-Control-Allow-Origin"] = origin
@@ -506,152 +506,152 @@ async def api_status(response: Response, request: Request = None):
     response.headers["Access-Control-Allow-Headers"] = "*"
     
     try:
-        # Sempre retornar status online para passar no healthcheck
+        # Always return online status to pass healthcheck
         return {
             "status": "online",
             "version": "0.5.0",
             "timestamp": datetime.datetime.now().isoformat()
         }
     except Exception as e:
-        # Ainda retorna status online para garantir que o healthcheck passe
+        # Still return online status to ensure healthcheck passes
         return {"status": "online", "error": str(e)}
 
 
-# Funções para autenticação
+# Authentication functions
 def get_current_user(token: str = Depends(oauth2_scheme)):
-    """Obtém o usuário atual baseado no token JWT"""
+    """Gets the current user based on JWT token"""
     if not token:
-        print("Token não fornecido na requisição")
-        # Retornar None para permitir que o endpoint decida como lidar com ausência de token
+        print("Token not provided in request")
+        # Return None to allow endpoint to decide how to handle missing token
         return None
         
     try:
-        print(f"Tentando validar token: {token[:10]}...")
+        print(f"Attempting to validate token: {token[:10]}...")
         
-        # Decodificar o token manualmente com tratamento de erro melhorado
+        # Decode token manually with improved error handling
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            print("Token decodificado com sucesso")
+            print("Token decoded successfully")
         except jwt.ExpiredSignatureError:
-            print("Erro: Token expirado")
-            return {"error": "Token expirado. Faça login novamente."}
+            print("Error: Token expired")
+            return {"error": "Token expired. Please login again."}
         except jwt.InvalidTokenError:
-            print("Erro: Token inválido")
-            return {"error": "Token inválido. Formato incorreto."}
+            print("Error: Invalid token")
+            return {"error": "Invalid token. Incorrect format."}
         except Exception as e:
-            print(f"Erro desconhecido ao decodificar token: {e}")
-            return {"error": f"Erro ao processar token: {str(e)}"}
+            print(f"Unknown error decoding token: {e}")
+            return {"error": f"Error processing token: {str(e)}"}
             
-        # Verificar se o payload contém o steam_id
+        # Check if payload contains steam_id
         steam_id = payload.get("steam_id")
         if not steam_id:
-            print("Erro: Token não contém SteamID")
-            return {"error": "Token não contém SteamID"}
+            print("Error: Token does not contain SteamID")
+            return {"error": "Token does not contain SteamID"}
             
-        # Retornar informações do usuário
-        print(f"Usuário autenticado com SteamID: {steam_id}")
+        # Return user information
+        print(f"User authenticated with SteamID: {steam_id}")
         return {"steam_id": steam_id}
     except Exception as e:
-        print(f"Erro inesperado na autenticação: {e}")
+        print(f"Unexpected authentication error: {e}")
         import traceback
         traceback.print_exc()
-        return {"error": f"Erro na autenticação: {str(e)}"}
+        return {"error": f"Authentication error: {str(e)}"}
 
 
-# Endpoints para autenticação com a Steam
+# Endpoints for Steam authentication
 @app.get("/auth/steam")
 async def steam_auth(request: Request, redirect_local: bool = False, return_url: str = None):
-    """Redireciona para o login da Steam"""
-    # URL base para a API
+    """Redirects to Steam login"""
+    # Base URL for the API
     base_url = str(request.base_url).rstrip('/')
     redirect_uri = f"{base_url}/auth/steam/callback"
     
-    # Adicionar parâmetros para a URL de callback
+    # Add parameters to callback URL
     params = {}
     
-    # Adicionar parâmetro para indicar redirecionamento local
+    # Add parameter to indicate local redirect
     if redirect_local:
         params["redirect_local"] = "true"
     
-    # Adicionar URL de retorno se fornecida
+    # Add return URL if provided
     if return_url:
         params["return_url"] = return_url
-        print(f"URL de retorno recebida: {return_url}")
+        print(f"Return URL received: {return_url}")
     
-    # Adicionar parâmetros à URL de callback
+    # Add parameters to callback URL
     if params:
         redirect_uri += "?" + urlencode(params)
     
-    print(f"URL de callback configurada: {redirect_uri}")
+    print(f"Callback URL configured: {redirect_uri}")
     
-    # Gerar URL de login
+    # Generate login URL
     login_url = steam_login_url(redirect_uri)
-    print(f"URL de login com Steam: {login_url}")
+    print(f"Steam login URL: {login_url}")
     
     return RedirectResponse(url=login_url)
 
 
 @app.get("/auth/steam/callback")
 async def steam_callback(request: Request):
-    """Callback após o login na Steam"""
-    # Extrair parâmetros da resposta
+    """Callback after Steam login"""
+    # Extract parameters from response
     params = dict(request.query_params)
     
-    # Verificar se deve redirecionar para local
+    # Check if should redirect to local
     redirect_local = "redirect_local" in params and params["redirect_local"] == "true"
     
-    # Validar autenticação
+    # Validate authentication
     steam_id = validate_steam_login(params)
     if steam_id:
-        # Gerar token JWT
+        # Generate JWT token
         token = create_jwt_token({"steam_id": steam_id})
         
-        # Definir URL de frontend baseado no parâmetro redirect_local
+        # Set frontend URL based on redirect_local parameter
         if redirect_local:
-            # Ambiente de desenvolvimento local
+            # Local development environment
             frontend_url = "http://localhost:5500/api.html"
-            print(f"Redirecionando para: {frontend_url}?token={token}")
-            print(f"Ambiente: Desenvolvimento local")
+            print(f"Redirecting to: {frontend_url}?token={token}")
+            print(f"Environment: Local development")
         else:
-            # Ambiente de produção
+            # Production environment
             frontend_url = "https://elite-skins-2025.github.io/api.html"
-            print(f"Redirecionando para: {frontend_url}?token={token}")
-            print(f"Ambiente: Produção")
+            print(f"Redirecting to: {frontend_url}?token={token}")
+            print(f"Environment: Production")
         
-        # Receber URL de retorno personalizado, se fornecido na requisição original
-        # Verificar se a URL de retorno foi passada na requisição original
+        # Receive custom return URL if provided in original request
+        # Check if return URL was passed in original request
         return_url_param = next((p for p in params.keys() if "return_url" in p), None)
         if return_url_param:
             custom_return_url = params[return_url_param]
             if custom_return_url:
                 frontend_url = custom_return_url
-                print(f"Usando URL de retorno personalizado: {frontend_url}")
-                print(f"Parâmetro de retorno: {return_url_param}={custom_return_url}")
+                print(f"Using custom return URL: {frontend_url}")
+                print(f"Return parameter: {return_url_param}={custom_return_url}")
         
-        # Redirecionar para o frontend com o token como parâmetro
+        # Redirect to frontend with token as parameter
         redirect_url = f"{frontend_url}?token={token}"
         
-        # Registrar informações adicionais para debug
-        print(f"Parâmetros recebidos no callback: {params}")
-        print(f"URL final de redirecionamento: {redirect_url}")
+        # Log additional information for debugging
+        print(f"Parameters received in callback: {params}")
+        print(f"Final redirect URL: {redirect_url}")
         
-        # Retornar um redirecionamento HTTP 302
+        # Return HTTP 302 redirect
         return RedirectResponse(url=redirect_url)
     else:
-        return {"error": "Falha na autenticação com a Steam"}
+        return {"error": "Steam authentication failed"}
 
 
-# Endpoint de teste para redirecionamento
+# Test endpoint for redirection
 @app.get("/auth/test-redirect")
 async def test_redirect(request: Request, return_url: str = None):
-    """Endpoint de teste para verificar como a URL de retorno é tratada"""
-    # Extrair parâmetros da resposta
+    """Test endpoint to verify how return URL is handled"""
+    # Extract parameters from response
     params = dict(request.query_params)
     
-    # Obter URL base
+    # Get base URL
     base_url = str(request.base_url).rstrip('/')
     
-    # Informações de debug
+    # Debug information
     debug_info = {
         "request_url": str(request.url),
         "base_url": base_url,
@@ -659,14 +659,14 @@ async def test_redirect(request: Request, return_url: str = None):
         "return_url": return_url,
         "headers": dict(request.headers),
         "would_redirect_to": return_url if return_url else "No return URL provided",
-        "info": "Este é um endpoint de teste para verificar o redirecionamento. Não faz redirecionamento real."
+        "info": "This is a test endpoint to verify redirection. Does not perform actual redirection."
     }
     
     return debug_info
 
 
-# Endpoint para análise completa de inventário (incluindo conteúdo das Unidades de Armazenamento)
-# Esta função agora é interna e usada apenas pelo /my/inventory/complete
+# Endpoint for complete inventory analysis (including Storage Unit contents)
+# This function is now internal and used only by /my/inventory/complete
 async def _complete_inventory_analysis(
     steamid: str, 
     current_user: dict,
@@ -674,49 +674,49 @@ async def _complete_inventory_analysis(
     steam_token: str
 ):
     """
-    Função interna: Retorna análise completa do inventário incluindo o conteúdo das Unidades de Armazenamento.
-    Requer que o usuário esteja autenticado e seja o dono do inventário.
+    Internal function: Returns complete inventory analysis including Storage Unit contents.
+    Requires user to be authenticated and owner of the inventory.
     """
-    # Verificar se o usuário está autenticado
+    # Check if user is authenticated
     if not current_user:
         raise HTTPException(
             status_code=401,
-            detail="Autenticação necessária para acessar este endpoint"
+            detail="Authentication required to access this endpoint"
         )
     
-    # Verificar se há erro de autenticação
+    # Check if there's an authentication error
     if "error" in current_user:
         raise HTTPException(
             status_code=401,
             detail=current_user["error"]
         )
     
-    # Verificar se o usuário está tentando acessar seu próprio inventário
+    # Check if user is trying to access their own inventory
     if steamid != current_user["steam_id"]:
         raise HTTPException(
             status_code=403,
-            detail="Você só pode acessar o conteúdo das suas próprias Unidades de Armazenamento"
+            detail="You can only access the contents of your own Storage Units"
         )
     
-    # Verificar se todos os parâmetros necessários foram fornecidos
+    # Check if all required parameters were provided
     if not session_id or not steam_token:
         raise HTTPException(
             status_code=400,
-            detail="session_id e steam_token são necessários para acessar Unidades de Armazenamento"
+            detail="session_id and steam_token are required to access Storage Units"
         )
     
     try:
-        # Obter inventário básico
+        # Get basic inventory
         inventory_result = get_inventory_value(steamid)
         
-        # Processar unidades de armazenamento
+        # Process storage units
         storage_units = inventory_result.get("storage_units", [])
         storage_unit_contents = []
         
         for unit in storage_units:
             unit_id = unit.get("assetid")
             if unit_id:
-                # Obter conteúdo da unidade
+                # Get unit contents
                 contents = get_storage_unit_contents(
                     unit_id,
                     steamid,
@@ -724,16 +724,16 @@ async def _complete_inventory_analysis(
                     steam_token
                 )
                 
-                # Adicionar à lista de conteúdos
+                # Add to contents list
                 storage_unit_contents.append({
                     "unit_info": unit,
                     "contents": contents
                 })
         
-        # Adicionar conteúdos ao resultado
+        # Add contents to result
         inventory_result["storage_unit_contents"] = storage_unit_contents
         
-        # Calcular totais incluindo conteúdo das unidades
+        # Calculate totals including unit contents
         total_units_value = sum(
             content.get("contents", {}).get("total_value", 0)
             for content in storage_unit_contents
@@ -742,8 +742,8 @@ async def _complete_inventory_analysis(
         inventory_result["storage_units_content_value"] = total_units_value
         inventory_result["grand_total_value"] = inventory_result["total_value"] + total_units_value
         
-        # Adicionar uma lista plana com todos os itens (inventário + unidades)
-        all_items = inventory_result.get("items", [])[:]  # Cópia da lista original
+        # Add a flat list with all items (inventory + units)
+        all_items = inventory_result.get("items", [])[:]  # Copy of original list
         
         for unit_content in storage_unit_contents:
             all_items.extend(unit_content.get("contents", {}).get("items", []))
@@ -754,36 +754,36 @@ async def _complete_inventory_analysis(
         return inventory_result
     
     except Exception as e:
-        print(f"Erro ao processar inventário completo: {e}")
+        print(f"Error processing complete inventory: {e}")
         import traceback
         traceback.print_exc()
         
         raise HTTPException(
             status_code=500,
-            detail=f"Erro ao processar inventário: {str(e)}"
+            detail=f"Error processing inventory: {str(e)}"
         )
 
 
-# Novos endpoints para o usuário autenticado
+# New endpoints for authenticated user
 @app.get("/my/inventory")
 async def my_inventory(current_user: dict = Depends(get_current_user), response: Response = None, request: Request = None):
-    """Retorna os itens do inventário do usuário autenticado"""
-    # CORS tratado pelo middleware global
+    """Returns items from authenticated user's inventory"""
+    # CORS handled by global middleware
     
     if not current_user:
-        raise HTTPException(status_code=401, detail="Autenticação necessária")
+        raise HTTPException(status_code=401, detail="Authentication required")
     
     try:
-        # Usar steamid do usuário autenticado
+        # Use authenticated user's steamid
         steamid = current_user["steam_id"]
-        print(f"Analisando inventário do usuário autenticado: {steamid}")
+        print(f"Analyzing authenticated user's inventory: {steamid}")
         
-        # Reutilizar endpoint público
+        # Reuse public endpoint
         result = get_inventory_value(steamid)
         
         return result
     except Exception as e:
-        print(f"Erro ao processar inventário do usuário autenticado: {e}")
+        print(f"Error processing authenticated user's inventory: {e}")
         import traceback
         traceback.print_exc()
         return {
@@ -802,19 +802,19 @@ async def my_inventory_complete(
     response: Response = None,
     request: Request = None
 ):
-    """Retorna o inventário completo do usuário, incluindo conteúdo das unidades de armazenamento"""
-    # CORS tratado pelo middleware global
+    """Returns user's complete inventory, including storage unit contents"""
+    # CORS handled by global middleware
     
     if not current_user:
-        raise HTTPException(status_code=401, detail="Autenticação necessária")
+        raise HTTPException(status_code=401, detail="Authentication required")
     
     try:
-        # Usar steamid do usuário autenticado
+        # Use authenticated user's steamid
         steamid = current_user["steam_id"]
         
         return await _complete_inventory_analysis(steamid, current_user, session_id, steam_token)
     except Exception as e:
-        print(f"Erro ao processar inventário completo do usuário autenticado: {e}")
+        print(f"Error processing authenticated user's complete inventory: {e}")
         import traceback
         traceback.print_exc()
         return {
@@ -827,23 +827,23 @@ async def my_inventory_complete(
 
 @app.get("/my/inventory/full")
 async def my_inventory_full(current_user: dict = Depends(get_current_user), response: Response = None, request: Request = None):
-    """Retorna análise completa do inventário do usuário autenticado, com categorias"""
-    # CORS tratado pelo middleware global
+    """Returns complete analysis of authenticated user's inventory, with categories"""
+    # CORS handled by global middleware
     
     if not current_user:
-        raise HTTPException(status_code=401, detail="Autenticação necessária")
+        raise HTTPException(status_code=401, detail="Authentication required")
     
     try:
-        # Usar steamid do usuário autenticado
+        # Use authenticated user's steamid
         steamid = current_user["steam_id"]
-        print(f"Analisando inventário detalhado do usuário autenticado: {steamid}")
+        print(f"Analyzing authenticated user's detailed inventory: {steamid}")
         
-        # Obter inventário com categorização
+        # Get inventory with categorization
         result = get_inventory_value(steamid, categorize=True)
         
         return result
     except Exception as e:
-        print(f"Erro ao processar análise completa do usuário autenticado: {e}")
+        print(f"Error processing authenticated user's complete analysis: {e}")
         import traceback
         traceback.print_exc()
         return {
@@ -856,8 +856,8 @@ async def my_inventory_full(current_user: dict = Depends(get_current_user), resp
 
 @app.get("/cors-test")
 async def cors_test(response: Response):
-    """Endpoint simples para testar cabeçalhos CORS"""
-    # Adicionar cabeçalhos CORS manualmente
+    """Simple endpoint to test CORS headers"""
+    # Add CORS headers manually
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Credentials"] = "true"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
@@ -865,26 +865,26 @@ async def cors_test(response: Response):
     
     return {
         "cors_status": "OK",
-        "message": "Se você conseguir ver esta mensagem, os cabeçalhos CORS estão funcionando corretamente",
+        "message": "If you can see this message, CORS headers are working correctly",
         "timestamp": str(datetime.datetime.now()),
-        "requested_headers": "Todos os cabeçalhos são permitidos"
+        "requested_headers": "All headers are allowed"
     }
 
 
 @app.get("/db/stats")
 async def db_stats(current_user: dict = Depends(get_current_user)):
     """
-    Retorna estatísticas do banco de dados de preços de skins.
-    Requer autenticação.
+    Returns statistics from the skin prices database.
+    Requires authentication.
     """
-    # Verificar se o usuário está autenticado
+    # Check if user is authenticated
     if not current_user:
-        raise HTTPException(status_code=401, detail="Autenticação necessária")
+        raise HTTPException(status_code=401, detail="Authentication required")
     
-    # Obter estatísticas do banco de dados
+    # Get database statistics
     stats = get_stats()
     
-    # Obter status do agendador
+    # Get scheduler status
     scheduler_status = get_scheduler_status()
     
     return {
@@ -893,46 +893,46 @@ async def db_stats(current_user: dict = Depends(get_current_user)):
     }
 
 @app.post("/db/update")
-async def force_db_update(current_user: dict = Depends(get_current_user), max_items: int = Query(100, description="Número máximo de itens para atualizar")):
+async def force_db_update(current_user: dict = Depends(get_current_user), max_items: int = Query(100, description="Maximum number of items to update")):
     """
-    Força uma atualização imediata dos preços das skins mais antigas.
-    Requer autenticação.
+    Forces an immediate update of the oldest skin prices.
+    Requires authentication.
     """
-    # Verificar se o usuário está autenticado
+    # Check if user is authenticated
     if not current_user:
-        raise HTTPException(status_code=401, detail="Autenticação necessária")
+        raise HTTPException(status_code=401, detail="Authentication required")
     
-    # Forçar atualização
+    # Force update
     stats = force_update_now(max_items=max_items)
     
     return {
-        "message": f"Atualização forçada concluída. {stats['updated_skins']} itens atualizados.",
+        "message": f"Force update completed. {stats['updated_skins']} items updated.",
         "stats": stats
     }
 
-# Rota para inicializar o banco de dados (protegida por chave de admin)
+# Route to initialize database (protected by admin key)
 @app.get("/api/db/init")
 async def initialize_database(admin_key: str = Query(None), response: Response = None):
-    """Inicializa o banco de dados (apenas para administradores)"""
-    # CORS tratado pelo middleware global
+    """Initializes the database (admin only)"""
+    # CORS handled by global middleware
     
-    # Verificar se a chave administrativa está correta
+    # Check if admin key is correct
     expected_key = os.environ.get("ADMIN_KEY", "dev_admin_key")
     
     if admin_key != expected_key:
-        raise HTTPException(status_code=403, detail="Chave administrativa inválida")
+        raise HTTPException(status_code=403, detail="Invalid admin key")
         
     try:
-        # Inicializar o banco de dados
+        # Initialize database
         result = init_database()
         
         return {
             "success": True,
-            "message": "Banco de dados inicializado com sucesso",
+            "message": "Database initialized successfully",
             "details": result
         }
     except Exception as e:
-        print(f"Erro ao inicializar banco de dados: {e}")
+        print(f"Error initializing database: {e}")
         import traceback
         traceback.print_exc()
         return {
@@ -940,65 +940,65 @@ async def initialize_database(admin_key: str = Query(None), response: Response =
             "error": str(e)
         }
 
-# Inicialização da aplicação
+# Application initialization
 @app.on_event("startup")
 async def startup_event():
     """
-    Inicializa recursos na inicialização da aplicação.
+    Initializes resources on application startup.
     """
-    print("=== INICIANDO API ELITE SKINS CS2 ===")
-    print(f"Ambiente: {os.environ.get('RAILWAY_ENVIRONMENT_NAME', 'desenvolvimento')}")
+    print("=== STARTING ELITE SKINS CS2 API ===")
+    print(f"Environment: {os.environ.get('RENDER', 'development')}")
     
-    # Inicializar recursos críticos - banco de dados com tratamento de erro para não bloquear a inicialização
+    # Initialize critical resources - database with error handling to not block initialization
     try:
-        # Inicialização básica do banco para que a API possa responder
-        print("Inicializando banco de dados (modo rápido)...")
+        # Basic database initialization so API can respond
+        print("Initializing database (fast mode)...")
         init_db()
-        print("Banco de dados inicializado com sucesso para operação básica!")
+        print("Database initialized successfully for basic operation!")
     except Exception as e:
-        print(f"AVISO: Erro na inicialização básica do banco de dados: {e}")
-        print("A API continuará iniciando, mas algumas funcionalidades podem estar limitadas")
+        print(f"WARNING: Error in basic database initialization: {e}")
+        print("API will continue starting, but some features may be limited")
     
-    # Inicializar recursos não críticos de forma assíncrona
+    # Initialize non-critical resources asynchronously
     @app.on_event("startup")
     async def delayed_startup():
-        # Atrasar inicialização para garantir que o server já está respondendo
-        await asyncio.sleep(10)  # Esperar 10 segundos
+        # Delay initialization to ensure server is already responding
+        await asyncio.sleep(10)  # Wait 10 seconds
         try:
-            # Configurar a atualização semanal dos preços (Segunda-feira às 3:00)
-            print("Configurando atualizações programadas...")
+            # Configure weekly price updates (Monday at 3:00 AM)
+            print("Configuring scheduled updates...")
             schedule_weekly_update(day_of_week=0, hour=3, minute=0)
             
-            # Iniciar o agendador em uma thread separada
+            # Start scheduler in a separate thread
             run_scheduler()
-            print("Agendador de atualização de preços iniciado!")
+            print("Price update scheduler started!")
             
-            print("=== INICIALIZAÇÃO COMPLETA DOS RECURSOS ADICIONAIS ===")
+            print("=== COMPLETE INITIALIZATION OF ADDITIONAL RESOURCES ===")
         except Exception as e:
-            print(f"AVISO: Erro na inicialização de recursos não críticos: {e}")
+            print(f"WARNING: Error initializing non-critical resources: {e}")
             import traceback
             traceback.print_exc()
 
 
 @app.get("/healthcheck")
 async def healthcheck():
-    """Endpoint minimalista para verificar se a API está respondendo"""
+    """Minimalist endpoint to verify if API is responding"""
     try:
-        # Testa uma consulta simples ao banco de dados para garantir que está funcionando
-        # Apenas verifica se o banco está acessível
+        # Test a simple database query to ensure it's working
+        # Just checks if database is accessible
         init_db()
         return Response(content="OK", media_type="text/plain", status_code=200)
     except Exception as e:
-        print(f"Erro no healthcheck: {str(e)}")
-        # Ainda retorna 200 para o Railway não matar o serviço durante inicialização
+        print(f"Healthcheck error: {str(e)}")
+        # Still return 200 so Render doesn't kill the service during initialization
         return Response(content="Service warming up", media_type="text/plain", status_code=200)
 
 
 @app.get("/test-csgostash/{market_hash_name}")
 async def test_csgostash(market_hash_name: str):
     """
-    Endpoint para testar a função de obtenção de preços via CSGOStash.
-    Apenas para desenvolvimento/teste.
+    Endpoint to test CSGOStash price retrieval function.
+    Development/testing only.
     """
     try:
         result = get_item_price_via_csgostash(market_hash_name)
@@ -1015,24 +1015,24 @@ async def test_csgostash(market_hash_name: str):
 
 
 if __name__ == "__main__":
-    # Aumentar número de workers e timeout para lidar melhor com requisições longas
-    # Como o processamento de inventários grandes pode demorar
+    # Increase number of workers and timeout to better handle long requests
+    # As processing large inventories can take time
     
-    # Obter a porta do ambiente (para compatibilidade com Railway e outros serviços de hospedagem)
+    # Get port from environment (for compatibility with Render and other hosting services)
     port = int(os.environ.get("PORT", 8080))
     
-    print(f"Iniciando servidor na porta {port}")
-    print("Configuração CORS:")
-    print(f"- Origens permitidas: {ALLOWED_ORIGINS}")
+    print(f"Starting server on port {port}")
+    print("CORS configuration:")
+    print(f"- Allowed origins: {ALLOWED_ORIGINS}")
     
-    # Aumentar os timeouts para lidar melhor com requisições CORS preflight
+    # Increase timeouts to better handle CORS preflight requests
     uvicorn.run(
         "main:app", 
         host="0.0.0.0", 
         port=port, 
         reload=True,
-        workers=4,  # Mais workers para processar requisições em paralelo
-        timeout_keep_alive=120,  # Manter conexões vivas por mais tempo (2 minutos)
-        timeout_graceful_shutdown=30,  # Dar mais tempo para shutdown
+        workers=4,  # More workers to process requests in parallel
+        timeout_keep_alive=120,  # Keep connections alive longer (2 minutes)
+        timeout_graceful_shutdown=30,  # Give more time for shutdown
         log_level="info"
     )

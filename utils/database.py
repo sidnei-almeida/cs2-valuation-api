@@ -9,61 +9,67 @@ import socket
 import json
 import threading
 
-# URL de conexão pública para o PostgreSQL no Railway
-PUBLIC_DATABASE_URL = 'postgresql://postgres:nGFueZUdBGYipIfpFrxicixchLSgsShM@gondola.proxy.rlwy.net:10790/railway'
+# Database connection URL (configured via environment variables)
+# Supports Neon.tech, Render, Railway, and other PostgreSQL providers
+# Example for Neon.tech: postgresql://user:password@host/dbname?sslmode=require&channel_binding=require
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
-# URL de conexão interna (pode não funcionar fora do ambiente Railway)
-INTERNAL_DATABASE_URL = 'postgresql://postgres:nGFueZUdBGYipIfpFrxicixchLSgsShM@postgres.railway.internal:5432/railway'
+# Separate components as fallback (configured via environment variables)
+DB_HOST = os.environ.get('DB_HOST')
+DB_PORT = os.environ.get('DB_PORT', '5432')
+DB_NAME = os.environ.get('DB_NAME')
+DB_USER = os.environ.get('DB_USER')
+DB_PASSWORD = os.environ.get('DB_PASSWORD')
 
-# URL de conexão prioritária com fallback para o público
-DATABASE_URL = os.environ.get('DATABASE_URL', PUBLIC_DATABASE_URL)
-
-# Componentes separados como fallback
-DB_HOST = os.environ.get('DB_HOST', 'gondola.proxy.rlwy.net')
-DB_PORT = os.environ.get('DB_PORT', '10790')
-DB_NAME = os.environ.get('DB_NAME', 'railway')
-DB_USER = os.environ.get('DB_USER', 'postgres')
-DB_PASSWORD = os.environ.get('DB_PASSWORD', 'nGFueZUdBGYipIfpFrxicixchLSgsShM')
-
-# Cache em memória para modo de fallback
+# In-memory cache for fallback mode
 in_memory_db = {
     'skin_prices': {},
     'metadata': {}
 }
 db_lock = threading.Lock()
-DB_AVAILABLE = False  # Flag para indicar se o banco de dados está disponível
+DB_AVAILABLE = False  # Flag to indicate if database is available
 
 def get_db_connection():
-    """Cria uma conexão com o banco de dados PostgreSQL."""
+    """Creates a connection to the PostgreSQL database."""
     global DB_AVAILABLE
     
-    # Lista de modos SSL para tentar, em ordem de preferência
+    # List of SSL modes to try, in order of preference
     ssl_modes = ['require', 'prefer', 'verify-ca', 'verify-full']
     last_error = None
     
-    # 1. Primeira tentativa: Usar a URL pública (mais confiável)
-    try:
-        print(f"Tentando conectar com URL pública externa")
-        conn = psycopg2.connect(PUBLIC_DATABASE_URL, sslmode='require', connect_timeout=20)
-        print(f"Conexão bem-sucedida com URL pública")
-        DB_AVAILABLE = True
-        return conn
-    except Exception as e:
-        print(f"Erro ao conectar com URL pública: {e}")
-        last_error = e
+    # 1. First attempt: Use DATABASE_URL if available
+    if DATABASE_URL:
+        # If DATABASE_URL already has sslmode and channel_binding (e.g., Neon.tech), use it directly
+        if 'sslmode=' in DATABASE_URL and 'channel_binding=' in DATABASE_URL:
+            try:
+                print(f"Attempting to connect with DATABASE_URL (with SSL and channel binding)")
+                conn = psycopg2.connect(DATABASE_URL, connect_timeout=20)
+                print(f"Successfully connected with DATABASE_URL")
+                DB_AVAILABLE = True
+                return conn
+            except Exception as e:
+                print(f"Error connecting with DATABASE_URL: {e}")
+                last_error = e
+        else:
+            # Try different SSL modes if not already specified
+            for ssl_mode in ssl_modes:
+                try:
+                    print(f"Attempting to connect with DATABASE_URL and sslmode={ssl_mode}")
+                    # Add sslmode to URL if not present
+                    if 'sslmode=' not in DATABASE_URL:
+                        separator = '&' if '?' in DATABASE_URL else '?'
+                        db_url_with_ssl = f"{DATABASE_URL}{separator}sslmode={ssl_mode}"
+                    else:
+                        db_url_with_ssl = DATABASE_URL
+                    conn = psycopg2.connect(db_url_with_ssl, connect_timeout=20)
+                    print(f"Successfully connected with DATABASE_URL")
+                    DB_AVAILABLE = True
+                    return conn
+                except Exception as e:
+                    print(f"Error connecting with DATABASE_URL and sslmode={ssl_mode}: {e}")
+                    last_error = e
     
-    # 2. Segunda tentativa: usar a URL interna (se disponível)
-    if 'railway.internal' in INTERNAL_DATABASE_URL:
-        try:
-            print(f"Tentando conectar com URL interna do Railway")
-            conn = psycopg2.connect(INTERNAL_DATABASE_URL, sslmode='prefer', connect_timeout=15)
-            print(f"Conexão bem-sucedida com URL interna")
-            DB_AVAILABLE = True
-            return conn
-        except Exception as e:
-            print(f"Erro ao conectar com URL interna: {e}")
-    
-    # 3. Terceira tentativa: usar componentes separados
+    # 2. Second attempt: use separate components
     for ssl_mode in ssl_modes:
         try:
             connect_params = {
@@ -79,43 +85,44 @@ def get_db_connection():
                 'keepalives_idle': 30
             }
             
-            print(f"Tentando conectar ao PostgreSQL com parâmetros separados e sslmode={ssl_mode}")
+            print(f"Attempting to connect to PostgreSQL with separate parameters and sslmode={ssl_mode}")
             conn = psycopg2.connect(**connect_params)
-            print(f"Conexão bem-sucedida com parâmetros separados e sslmode={ssl_mode}")
+            print(f"Successfully connected with separate parameters and sslmode={ssl_mode}")
             DB_AVAILABLE = True
             return conn
         except Exception as e:
-            print(f"Erro ao conectar com parâmetros separados e sslmode={ssl_mode}: {str(e)}")
+            print(f"Error connecting with separate parameters and sslmode={ssl_mode}: {str(e)}")
             last_error = e
     
-    # Se chegou aqui, todas as tentativas falharam
+    # If we got here, all attempts failed
     error_msg = f"""
-    Erro de conexão com o banco de dados PostgreSQL do Railway:
+    PostgreSQL database connection error:
     - Host: {DB_HOST}
-    - Porta: {DB_PORT}
-    - Banco: {DB_NAME}
-    - Usuário: {DB_USER}
-    - Erro: {str(last_error)}
-    - Sugestões:
-      1. Verifique se o serviço PostgreSQL no Railway está ativo
-      2. Confirme se as credenciais estão corretas
-      3. Verifique se seu serviço tem permissão para acessar o banco de dados
+    - Port: {DB_PORT}
+    - Database: {DB_NAME}
+    - User: {DB_USER}
+    - Error: {str(last_error)}
+    - Suggestions:
+      1. Check if PostgreSQL service is active
+      2. Confirm credentials are correct in environment variables
+      3. Verify DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are configured
+      4. On Render, ensure PostgreSQL service is linked to web service
       
-    ENTRANDO EM MODO DE FALLBACK: Dados serão armazenados em memória temporariamente.
+    ENTERING FALLBACK MODE: Data will be stored in memory temporarily.
     """
     print(error_msg)
     DB_AVAILABLE = False
-    # Não lançar erro, permitindo que a aplicação continue em modo de fallback
+    # Don't raise error, allowing application to continue in fallback mode
     return None
 
 def init_db():
-    """Inicializa o banco de dados com as tabelas necessárias."""
+    """Initializes the database with necessary tables."""
     try:
         conn = get_db_connection()
         if conn:
             cursor = conn.cursor()
             
-            # Tabela para armazenar preços de skins
+            # Table to store skin prices
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS skin_prices (
                 id SERIAL PRIMARY KEY,
@@ -130,7 +137,7 @@ def init_db():
             )
             ''')
             
-            # Tabela para armazenar metadata e configurações
+            # Table to store metadata and configurations
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS metadata (
                 key TEXT PRIMARY KEY,
@@ -139,7 +146,7 @@ def init_db():
             )
             ''')
             
-            # Índice para buscas rápidas por market_hash_name
+            # Index for fast searches by market_hash_name
             cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_skin_prices_market_hash_name
             ON skin_prices(market_hash_name)
@@ -148,30 +155,30 @@ def init_db():
             conn.commit()
             conn.close()
             
-            print(f"Banco de dados PostgreSQL inicializado")
+            print(f"PostgreSQL database initialized")
         else:
-            print("Banco de dados não disponível. Operando em modo de fallback (memória).")
+            print("Database not available. Operating in fallback mode (memory).")
     except Exception as e:
-        print(f"Erro ao inicializar banco de dados: {e}")
-        print("Operando em modo de fallback (memória).")
+        print(f"Error initializing database: {e}")
+        print("Operating in fallback mode (memory).")
 
 def get_skin_price(market_hash_name: str, currency: int, app_id: int) -> Optional[float]:
     """
-    Busca o preço de uma skin no banco de dados.
+    Searches for a skin price in the database.
     
     Args:
-        market_hash_name: Nome formatado do item para o mercado
-        currency: Código da moeda
-        app_id: ID da aplicação na Steam
+        market_hash_name: Formatted item name for the market
+        currency: Currency code
+        app_id: Steam application ID
         
     Returns:
-        Preço da skin ou None se não encontrada ou desatualizada
+        Skin price or None if not found or outdated
     """
     if DB_AVAILABLE:
         try:
             conn = get_db_connection()
             if not conn:
-                # Fallback para cache em memória
+                # Fallback to memory cache
                 return _get_price_from_memory(market_hash_name, currency, app_id)
                 
             cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -186,21 +193,21 @@ def get_skin_price(market_hash_name: str, currency: int, app_id: int) -> Optiona
             
             if result:
                 price, last_updated = result['price'], result['last_updated']
-                # Verificar se o preço está atualizado (< 7 dias)
+                # Check if price is up to date (< 7 days)
                 if datetime.now() - last_updated < timedelta(days=7):
                     return price
             
             return None
         except Exception as e:
-            print(f"Erro ao obter preço do banco: {e}")
+            print(f"Error getting price from database: {e}")
             # Fallback para cache em memória
             return _get_price_from_memory(market_hash_name, currency, app_id)
     else:
-        # Usar cache em memória quando o banco não está disponível
+        # Use memory cache when database is not available
         return _get_price_from_memory(market_hash_name, currency, app_id)
 
 def _get_price_from_memory(market_hash_name: str, currency: int, app_id: int) -> Optional[float]:
-    """Obtém o preço do cache em memória"""
+    """Gets price from memory cache"""
     key = f"{market_hash_name}:{currency}:{app_id}"
     with db_lock:
         if key in in_memory_db['skin_prices']:
@@ -211,17 +218,17 @@ def _get_price_from_memory(market_hash_name: str, currency: int, app_id: int) ->
 
 def save_skin_price(market_hash_name: str, price: float, currency: int, app_id: int):
     """
-    Salva ou atualiza o preço de uma skin no banco de dados.
+    Saves or updates a skin price in the database.
     
     Args:
-        market_hash_name: Nome formatado do item para o mercado
-        price: Preço atual da skin
-        currency: Código da moeda
-        app_id: ID da aplicação na Steam
+        market_hash_name: Formatted item name for the market
+        price: Current skin price
+        currency: Currency code
+        app_id: Steam application ID
     """
     now = datetime.now()
     
-    # Sempre salva no cache em memória
+    # Always save to memory cache
     key = f"{market_hash_name}:{currency}:{app_id}"
     with db_lock:
         in_memory_db['skin_prices'][key] = {
@@ -243,7 +250,7 @@ def save_skin_price(market_hash_name: str, price: float, currency: int, app_id: 
                 
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             
-            # Verificar se o item já existe
+            # Check if item already exists
             cursor.execute('''
             SELECT id, update_count FROM skin_prices
             WHERE market_hash_name = %s AND currency = %s AND app_id = %s
@@ -252,14 +259,14 @@ def save_skin_price(market_hash_name: str, price: float, currency: int, app_id: 
             result = cursor.fetchone()
             
             if result:
-                # Atualizar item existente
+                # Update existing item
                 cursor.execute('''
                 UPDATE skin_prices
                 SET price = %s, last_updated = %s, update_count = update_count + 1
                 WHERE id = %s
                 ''', (price, now, result['id']))
             else:
-                # Inserir novo item
+                # Insert new item
                 cursor.execute('''
                 INSERT INTO skin_prices 
                 (market_hash_name, price, currency, app_id, last_updated, last_scraped, update_count)
@@ -269,19 +276,19 @@ def save_skin_price(market_hash_name: str, price: float, currency: int, app_id: 
             conn.commit()
             conn.close()
         except Exception as e:
-            print(f"Erro ao salvar preço no banco de dados: {e}")
-            # Já está no cache em memória, então só registramos o erro
+            print(f"Error saving price to database: {e}")
+            # Already in memory cache, so just log the error
 
 def get_outdated_skins(days: int = 7, limit: int = 100) -> List[Dict]:
     """
-    Retorna uma lista de skins com preços desatualizados.
+    Returns a list of skins with outdated prices.
     
     Args:
-        days: Número de dias para considerar um preço desatualizado
-        limit: Limite de registros a retornar
+        days: Number of days to consider a price outdated
+        limit: Limit of records to return
         
     Returns:
-        Lista de dicionários com informações das skins desatualizadas
+        List of dictionaries with outdated skin information
     """
     if DB_AVAILABLE:
         try:
@@ -305,13 +312,13 @@ def get_outdated_skins(days: int = 7, limit: int = 100) -> List[Dict]:
             
             return list(results)
         except Exception as e:
-            print(f"Erro ao obter skins desatualizadas do banco: {e}")
+            print(f"Error getting outdated skins from database: {e}")
             return _get_outdated_from_memory(days, limit)
     else:
         return _get_outdated_from_memory(days, limit)
 
 def _get_outdated_from_memory(days: int = 7, limit: int = 100) -> List[Dict]:
-    """Obtém skins desatualizadas do cache em memória"""
+    """Gets outdated skins from memory cache"""
     outdated_date = datetime.now() - timedelta(days=days)
     results = []
     
@@ -326,22 +333,22 @@ def _get_outdated_from_memory(days: int = 7, limit: int = 100) -> List[Dict]:
 
 def update_last_scrape_time(market_hash_name: str, currency: int, app_id: int):
     """
-    Atualiza o timestamp da última vez que o scraping foi feito para uma skin.
+    Updates the timestamp of the last time scraping was done for a skin.
     
     Args:
-        market_hash_name: Nome formatado do item para o mercado
-        currency: Código da moeda
-        app_id: ID da aplicação na Steam
+        market_hash_name: Formatted item name for the market
+        currency: Currency code
+        app_id: Steam application ID
     """
     now = datetime.now()
     
-    # Atualizar no cache em memória
+    # Update in memory cache
     key = f"{market_hash_name}:{currency}:{app_id}"
     with db_lock:
         if key in in_memory_db['skin_prices']:
             in_memory_db['skin_prices'][key]['last_scraped'] = now
     
-    # Se o banco estiver disponível, tenta atualizar nele também
+    # If database is available, try to update there too
     if DB_AVAILABLE:
         try:
             conn = get_db_connection()
@@ -359,19 +366,19 @@ def update_last_scrape_time(market_hash_name: str, currency: int, app_id: int):
             conn.commit()
             conn.close()
         except Exception as e:
-            print(f"Erro ao atualizar tempo de scraping no banco: {e}")
+            print(f"Error updating scrape time in database: {e}")
 
 def set_metadata(key: str, value: str):
     """
-    Define um valor de metadata no banco de dados.
+    Sets a metadata value in the database.
     
     Args:
-        key: Chave do metadado
-        value: Valor a ser armazenado
+        key: Metadata key
+        value: Value to be stored
     """
     now = datetime.now()
     
-    # Salvar no cache em memória
+    # Save to memory cache
     with db_lock:
         in_memory_db['metadata'][key] = {
             'value': value,
@@ -398,25 +405,25 @@ def set_metadata(key: str, value: str):
             conn.commit()
             conn.close()
         except Exception as e:
-            print(f"Erro ao salvar metadata no banco: {e}")
+            print(f"Error saving metadata to database: {e}")
 
 def get_metadata(key: str, default: str = None) -> str:
     """
-    Obtém um valor de metadata do banco de dados.
+    Gets a metadata value from the database.
     
     Args:
-        key: Chave do metadado
-        default: Valor padrão se a chave não existir
+        key: Metadata key
+        default: Default value if key doesn't exist
         
     Returns:
-        Valor do metadado ou o valor padrão
+        Metadata value or default value
     """
-    # Verificar primeiro no cache em memória
+    # Check memory cache first
     with db_lock:
         if key in in_memory_db['metadata']:
             return in_memory_db['metadata'][key]['value']
     
-    # Se não encontrou em memória e o banco está disponível, tenta buscar nele
+    # If not found in memory and database is available, try to search there
     if DB_AVAILABLE:
         try:
             conn = get_db_connection()
@@ -430,7 +437,7 @@ def get_metadata(key: str, default: str = None) -> str:
             conn.close()
             
             if result:
-                # Atualizar o cache em memória
+                # Update memory cache
                 with db_lock:
                     in_memory_db['metadata'][key] = {
                         'value': result['value'],
@@ -438,16 +445,16 @@ def get_metadata(key: str, default: str = None) -> str:
                     }
                 return result['value']
         except Exception as e:
-            print(f"Erro ao obter metadata do banco: {e}")
+            print(f"Error getting metadata from database: {e}")
             
     return default
 
 def get_stats() -> Dict:
     """
-    Retorna estatísticas sobre o banco de dados.
+    Returns statistics about the database.
     
     Returns:
-        Dicionário com estatísticas
+        Dictionary with statistics
     """
     if DB_AVAILABLE:
         try:
@@ -457,20 +464,20 @@ def get_stats() -> Dict:
                 
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             
-            # Total de skins
+            # Total skins
             cursor.execute('SELECT COUNT(*) as total FROM skin_prices')
             total = cursor.fetchone()['total']
             
-            # Preço médio
+            # Average price
             cursor.execute('SELECT AVG(price) as avg_price FROM skin_prices')
             avg_price = cursor.fetchone()['avg_price']
             
-            # Skins atualizadas recentemente (7 dias)
+            # Recently updated skins (7 days)
             recent_date = datetime.now() - timedelta(days=7)
             cursor.execute('SELECT COUNT(*) as recent FROM skin_prices WHERE last_updated > %s', (recent_date,))
             recent = cursor.fetchone()['recent']
             
-            # Última atualização
+            # Last update
             cursor.execute('SELECT MAX(last_updated) as last_update FROM skin_prices')
             last_update = cursor.fetchone()['last_update']
             
@@ -485,23 +492,23 @@ def get_stats() -> Dict:
                 'mode': 'DB'
             }
         except Exception as e:
-            print(f"Erro ao obter estatísticas do banco: {e}")
+            print(f"Error getting statistics from database: {e}")
             return _get_stats_from_memory()
     else:
         return _get_stats_from_memory()
 
 def _get_stats_from_memory() -> Dict:
-    """Retorna estatísticas baseadas no cache em memória"""
+    """Returns statistics based on memory cache"""
     with db_lock:
         prices = list(item['price'] for item in in_memory_db['skin_prices'].values())
         total = len(in_memory_db['skin_prices'])
         avg_price = sum(prices) / total if total > 0 else 0
         
-        # Skins atualizadas recentemente (7 dias)
+        # Recently updated skins (7 days)
         recent_date = datetime.now() - timedelta(days=7)
         recent = sum(1 for item in in_memory_db['skin_prices'].values() if item['last_updated'] > recent_date)
         
-        # Última atualização
+        # Last update
         last_update = max([item['last_updated'] for item in in_memory_db['skin_prices'].values()]) if total > 0 else None
         
         return {

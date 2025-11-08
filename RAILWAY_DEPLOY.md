@@ -1,86 +1,86 @@
-# Deploy no Railway
+# Deploy on Railway
 
-Este guia descreve como fazer o deploy da API Elite Skins CS2 no Railway.
+This guide describes how to deploy the Elite Skins CS2 API on Railway.
 
-## Configuração no Railway
+## Railway Configuration
 
-1. Crie uma conta no [Railway](https://railway.app/)
-2. Inicie um novo projeto selecionando "Deploy from GitHub"
-3. Autorize o Railway a acessar seu repositório e selecione o repositório do projeto
-4. Na configuração inicial, defina o diretório raiz como `cotacao_cs2`
-5. Adicione um serviço PostgreSQL ao seu projeto clicando em "New" e selecionando "Database" > "PostgreSQL"
+1. Create an account on [Railway](https://railway.app/)
+2. Start a new project by selecting "Deploy from GitHub"
+3. Authorize Railway to access your repository and select the project repository
+4. In the initial configuration, set the root directory as `cotacao_cs2`
+5. Add a PostgreSQL service to your project by clicking "New" and selecting "Database" > "PostgreSQL"
 
-## Variáveis de Ambiente
+## Environment Variables
 
-As variáveis de ambiente já estão configuradas no arquivo `railway.toml` para usar a conexão pública do PostgreSQL:
+Environment variables are already configured in the `railway.toml` file to use the public PostgreSQL connection:
 
-| Nome da Variável | Valor |
-|------------------|-------|
-| `DATABASE_URL` | `postgresql://postgres:SENHA@gondola.proxy.rlwy.net:10790/railway` |
+| Variable Name | Value |
+|---------------|-------|
+| `DATABASE_URL` | `postgresql://postgres:PASSWORD@gondola.proxy.rlwy.net:10790/railway` |
 | `DB_HOST` | `gondola.proxy.rlwy.net` |
 | `DB_PORT` | `10790` |
 | `DB_NAME` | `railway` |
 | `DB_USER` | `postgres` |
-| `DB_PASSWORD` | `SENHA` |
-| `PORT` | `8080` (definido automaticamente pelo Railway) |
+| `DB_PASSWORD` | `PASSWORD` |
+| `PORT` | `8080` (automatically set by Railway) |
 
-**Nota importante**: Estamos usando o endpoint público do PostgreSQL (`gondola.proxy.rlwy.net`) em vez do interno, pois o endpoint interno pode não resolver corretamente em todos os ambientes do Railway.
+**Important note**: We're using the public PostgreSQL endpoint (`gondola.proxy.rlwy.net`) instead of the internal one, as the internal endpoint may not resolve correctly in all Railway environments.
 
-## Como implantar
+## How to Deploy
 
-1. Através da CLI do Railway (recomendado):
+1. Via Railway CLI (recommended):
    ```bash
-   # Instale a CLI do Railway
+   # Install Railway CLI
    npm i -g @railway/cli
    
-   # Faça login
+   # Login
    railway login
    
-   # Inicie um projeto (ou vincule-se a um existente)
+   # Start a project (or link to an existing one)
    railway init
    
-   # Implante (a partir da pasta cotacao_cs2)
+   # Deploy (from the cotacao_cs2 folder)
    cd cotacao_cs2
    railway up
    ```
 
-2. Ou através do painel do Railway (mais simples):
-   - Conecte seu repositório GitHub
-   - Configure o diretório `cotacao_cs2` como pasta de origem
-   - Clique em "Deploy"
+2. Or via Railway dashboard (simpler):
+   - Connect your GitHub repository
+   - Configure the `cotacao_cs2` directory as the source folder
+   - Click "Deploy"
 
-## Verificar Status
+## Verify Status
 
-Após o deploy, você pode verificar se a API está funcionando acessando o endpoint:
+After deployment, you can verify if the API is working by accessing the endpoint:
 
 ```
-https://[seu-app-railway].railway.app/api/status
+https://[your-railway-app].railway.app/api/status
 ```
 
-## Resolução de Problemas
+## Troubleshooting
 
-- **Erro de conexão com o banco de dados**: 
-  - Verifique se o serviço PostgreSQL está ativo no Railway
-  - Confirme se as credenciais estão corretas
-  - Verifique se o endpoint público `gondola.proxy.rlwy.net` é acessível
-  - Se a porta ou o host mudaram, atualize-os em `database.py` e `railway.toml`
+- **Database connection error**: 
+  - Check if the PostgreSQL service is active on Railway
+  - Confirm credentials are correct
+  - Verify that the public endpoint `gondola.proxy.rlwy.net` is accessible
+  - If the port or host changed, update them in `database.py` and `railway.toml`
 
-- **Erro de inicialização**: 
-  - Verifique os logs no painel do Railway para identificar o problema
+- **Initialization error**: 
+  - Check the logs in the Railway dashboard to identify the problem
 
 - **CORS**: 
-  - Se houver problemas de CORS, verifique se o domínio do frontend está na lista de origens permitidas no arquivo `main.py`
+  - If there are CORS issues, verify that the frontend domain is in the allowed origins list in the `main.py` file
 
-## Sistema de Fallback
+## Fallback System
 
-A API possui um sistema de fallback que permite o funcionamento mesmo em caso de falha na conexão com o PostgreSQL:
+The API has a fallback system that allows operation even in case of PostgreSQL connection failure:
 
-1. Quando não consegue conectar ao banco de dados, utiliza armazenamento em memória
-2. Os dados são sincronizados quando a conexão é restabelecida
-3. Isso garante alta disponibilidade da API mesmo durante problemas temporários
+1. When unable to connect to the database, it uses in-memory storage
+2. Data is synchronized when the connection is restored
+3. This ensures high API availability even during temporary issues
 
-## Notas
+## Notes
 
-- O Railway oferece monitoramento e logs integrados para facilitar o diagnóstico de problemas
-- Lembre-se que o plano gratuito do Railway tem limite de uso mensal ($5 de crédito)
-- Para melhor desempenho, considere utilizar uma região próxima aos seus usuários 
+- Railway offers integrated monitoring and logs to facilitate problem diagnosis
+- Remember that Railway's free plan has a monthly usage limit ($5 credit)
+- For better performance, consider using a region close to your users

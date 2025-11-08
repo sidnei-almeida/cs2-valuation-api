@@ -18,9 +18,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application files
 COPY . .
 
-# Expose the port
+# Expose the port (porta padrão, mas o CMD usa $PORT do ambiente)
 EXPOSE 8080
-ENV PORT=8080
+# PORT será definido pelo serviço de hospedagem (Render, Railway, etc)
 
-# Command to run the application with 4 workers como na versão funcionando
-CMD gunicorn -k uvicorn.workers.UvicornWorker -w 4 --timeout 120 --keep-alive 120 --preload main:app -b 0.0.0.0:8080 
+# Command to run the application with 4 workers
+# Usa $PORT para compatibilidade com diferentes plataformas de hospedagem
+CMD gunicorn -k uvicorn.workers.UvicornWorker -w 4 --timeout 120 --keep-alive 120 --preload main:app -b 0.0.0.0:$PORT 

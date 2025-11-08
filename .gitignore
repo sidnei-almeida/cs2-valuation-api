@@ -25,7 +25,7 @@ wheels/
 *.egg
 
 # Environments
-.env
+# .env - Removed from gitignore for portfolio project (credentials can be committed)
 .venv
 env/
 venv/

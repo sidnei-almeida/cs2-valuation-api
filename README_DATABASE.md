@@ -1,50 +1,50 @@
-# Sistema de Cache em Banco de Dados para Elite Skins API
+# Database Cache System for Elite Skins API
 
-## Visão Geral
+## Overview
 
-Este sistema implementa um cache em banco de dados para preços de skins de CS2, reduzindo significativamente as requisições para APIs externas e melhorando o desempenho e a confiabilidade da aplicação.
+This system implements a database cache for CS2 skin prices, significantly reducing requests to external APIs and improving application performance and reliability.
 
-### Principais Funcionalidades
+### Main Features
 
-- **Cache em SQLite**: Armazena localmente os preços das skins para evitar múltiplas requisições para a mesma skin
-- **Atualização automática semanal**: Job que atualiza automaticamente os preços mais antigos do banco de dados
-- **API para gerenciamento**: Endpoints para visualizar estatísticas e forçar atualizações
-- **Migração para PostgreSQL**: Suporte para migrar facilmente os dados para PostgreSQL quando for feito o deploy
+- **PostgreSQL Cache**: Stores skin prices locally to avoid multiple requests for the same skin
+- **Automatic weekly updates**: Job that automatically updates the oldest prices in the database
+- **Management API**: Endpoints to view statistics and force updates
+- **PostgreSQL Support**: Full support for PostgreSQL database for production deployment
 
-## Funcionamento
+## How It Works
 
-1. Quando um preço de skin é solicitado, o sistema:
-   - Primeiro verifica o cache em memória (para consultas repetidas na mesma sessão)
-   - Em seguida, consulta o banco de dados SQLite
-   - Se não encontrar ou o preço estiver desatualizado, faz scraping (como antes)
-   - Armazena o resultado tanto no cache em memória quanto no banco de dados
+1. When a skin price is requested, the system:
+   - First checks the memory cache (for repeated queries in the same session)
+   - Then queries the PostgreSQL database
+   - If not found or price is outdated, performs scraping (as before)
+   - Stores the result in both memory cache and database
 
-2. Um job semanal executa em background para atualizar os preços mais antigos do banco de dados, mesmo quando não há requisições ativas para essas skins.
+2. A weekly job runs in the background to update the oldest prices in the database, even when there are no active requests for those skins.
 
-## Estrutura do Banco de Dados
+## Database Structure
 
-### Tabela `skin_prices`
-- `id`: ID único do registro
-- `market_hash_name`: Nome da skin no mercado da Steam
-- `price`: Preço atual da skin
-- `currency`: Código da moeda
-- `app_id`: ID da aplicação na Steam
-- `last_updated`: Data/hora da última atualização do preço
-- `last_scraped`: Data/hora do último scraping
-- `update_count`: Contador de atualizações
+### `skin_prices` Table
+- `id`: Unique record ID
+- `market_hash_name`: Skin name on Steam market
+- `price`: Current skin price
+- `currency`: Currency code
+- `app_id`: Steam application ID
+- `last_updated`: Date/time of last price update
+- `last_scraped`: Date/time of last scraping
+- `update_count`: Update counter
 
-### Tabela `metadata`
-- `key`: Chave do metadado
-- `value`: Valor do metadado
-- `updated_at`: Data/hora da última atualização
+### `metadata` Table
+- `key`: Metadata key
+- `value`: Metadata value
+- `updated_at`: Date/time of last update
 
-## Como Usar
+## How to Use
 
-### Gerenciamento via API
+### Management via API
 
-Os seguintes endpoints foram adicionados:
+The following endpoints have been added:
 
-1. `/api/status`: Agora inclui estatísticas do banco de dados
+1. `/api/status`: Now includes database statistics
    ```json
    {
      "status": "online",
@@ -58,7 +58,7 @@ Os seguintes endpoints foram adicionados:
    }
    ```
 
-2. `/db/stats`: Retorna estatísticas detalhadas do banco de dados (requer autenticação)
+2. `/db/stats`: Returns detailed database statistics (requires authentication)
    ```json
    {
      "database": {
@@ -74,56 +74,58 @@ Os seguintes endpoints foram adicionados:
    }
    ```
 
-3. `/db/update`: Força a atualização imediata de preços (requer autenticação)
-   - Parâmetro `max_items`: Número máximo de itens para atualizar (padrão: 100)
+3. `/db/update`: Forces immediate price update (requires authentication)
+   - Parameter `max_items`: Maximum number of items to update (default: 100)
 
-### Migração para PostgreSQL
+### Database Initialization
 
-Quando estiver pronto para migrar do SQLite para PostgreSQL:
+When deploying to production:
 
-1. Configure a variável de ambiente `DATABASE_URL` no seu ambiente de produção no Render
-2. Execute o script de migração uma vez:
+1. Configure the `DATABASE_URL` environment variable in your production environment on Render
+2. Run the migration script once:
    ```bash
-   python utils/db_migration.py
+   python migrate_db.py
+   ```
+   Or access the initialization endpoint:
+   ```
+   https://your-service.onrender.com/api/db/init?admin_key=YOUR_ADMIN_KEY
    ```
 
-3. Depois, atualize o arquivo `utils/database.py` para usar PostgreSQL em vez de SQLite. Um arquivo de exemplo para essa mudança será fornecido.
+## Configuration
 
-## Configurações
+Main settings can be adjusted:
 
-As principais configurações podem ser ajustadas:
+1. **Update Period:** Default is weekly (Monday at 3 AM)
+   - Can be changed in `main.py` in the `startup_event()` function
 
-1. **Período de Atualização:** Padrão é semanal (segunda-feira às 3h)
-   - Pode ser alterado em `main.py` na função `startup_event()`
+2. **Items per Update:** Default is 100 skins per execution
+   - Defined by the `UPDATE_BATCH_SIZE` constant in `utils/price_updater.py`
 
-2. **Quantidade de Itens por Atualização:** Padrão é 100 skins por execução
-   - Definido pela constante `UPDATE_BATCH_SIZE` em `utils/price_updater.py`
+3. **Cache Validity Time:** Default is 7 days
+   - Can be changed in the `get_skin_price()` function in `utils/database.py`
 
-3. **Tempo de Validade do Cache:** Padrão é 7 dias
-   - Pode ser alterado na função `get_skin_price()` em `utils/database.py`
+## Benefits
 
-## Benefícios
+- **Less API usage:** Drastically reduces requests to external APIs
+- **Better performance:** Faster responses for users
+- **Greater reliability:** System works even if external API is unavailable
+- **Resource savings:** Less real-time processing
 
-- **Menor uso de API:** Reduz drasticamente as requisições para APIs externas
-- **Melhor performance:** Respostas mais rápidas para usuários
-- **Maior confiabilidade:** Sistema funciona mesmo se a API externa estiver indisponível
-- **Economia de recursos:** Menos processamento em tempo real
+## Fallback System
 
-## Considerações Futuras
+The API has a fallback system that allows operation even in case of PostgreSQL connection failure:
 
-Para quando migrar para PostgreSQL:
+1. When unable to connect to the database, it uses in-memory storage
+2. Data is synchronized when the connection is restored
+3. This ensures high API availability even during temporary issues
 
-1. O arquivo `utils/database.py` precisará ser atualizado para usar PostgreSQL
-2. Você precisará configurar a variável de ambiente `DATABASE_URL` no Render
-3. O agendador de atualizações (`schedule_weekly_update`) precisará ser adaptado para funcionar com múltiplas instâncias
+## Troubleshooting
 
-## Resolução de Problemas
+### Database is not being updated
+- Check if the scheduler is running: `/db/stats` should show the next update
+- You can force an immediate update with `/db/update`
 
-### Banco de dados não está sendo atualizado
-- Verifique se o agendador está em execução: `/db/stats` deve mostrar a próxima atualização
-- Você pode forçar uma atualização imediata com `/db/update`
-
-### Erros durante a migração para PostgreSQL
-- Verifique se a variável `DATABASE_URL` está correta
-- Confirme que o PostgreSQL está acessível a partir do seu servidor
-- Verifique se há erros no formato de data/hora ao migrar dados 
+### Errors during PostgreSQL connection
+- Verify that the `DATABASE_URL` variable is correct
+- Confirm that PostgreSQL is accessible from your server
+- Check if there are SSL connection issues (the system tries different SSL modes automatically)

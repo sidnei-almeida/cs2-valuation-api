@@ -10,66 +10,66 @@ from utils.config import STEAM_API_KEY, STEAM_MARKET_CURRENCY, STEAM_APPID, STEA
 import os
 from dotenv import load_dotenv
 
-# Carrega as variáveis de ambiente (se existir um arquivo .env)
+# Load environment variables (if .env file exists)
 load_dotenv()
 
-# URL base da API de inventário da Steam
+# Base URL for Steam inventory API
 STEAM_INVENTORY_URL = "https://steamcommunity.com/inventory/{steamid}/730/2"
 
-# URL para obter valores float
+# URL to get float values
 FLOAT_API_URL = "https://api.csgofloat.com/?url="
 
 
 def get_inventory_value(steamid: str, categorize: bool = False) -> Dict[str, Any]:
     """
-    Obtém o valor do inventário de CS2 de um usuário.
+    Gets the CS2 inventory value of a user.
     
     Args:
-        steamid: ID da Steam do usuário
-        categorize: Se True, categoriza os itens por tipo
+        steamid: User's Steam ID
+        categorize: If True, categorizes items by type
         
     Returns:
-        Dicionário com informações do inventário e valor total
+        Dictionary with inventory information and total value
     """
-    print(f"Iniciando obtenção do inventário para SteamID: {steamid}")
+    print(f"Starting inventory retrieval for SteamID: {steamid}")
     
-    # Limpar o ID Steam de caracteres indesejados ou codificação URL
-    # Remover chaves {} e qualquer codificação URL (%7B = { e %7D = })
+    # Clean Steam ID of unwanted characters or URL encoding
+    # Remove braces {} and any URL encoding (%7B = { and %7D = })
     steamid = steamid.replace("{", "").replace("}", "").replace("%7B", "").replace("%7D", "")
-    print(f"ID Steam normalizado: {steamid}")
+    print(f"Normalized Steam ID: {steamid}")
     
-    # Primeiro tentar obter o inventário usando o endpoint público
-    print("Tentando obter inventário via endpoint público...")
+    # First try to get inventory using public endpoint
+    print("Attempting to get inventory via public endpoint...")
     real_inventory = get_real_inventory(steamid)
     if real_inventory:
-        print(f"Inventário completo obtido via endpoint público: {len(real_inventory.get('items', []))} itens encontrados")
+        print(f"Complete inventory obtained via public endpoint: {len(real_inventory.get('items', []))} items found")
         
-        # Adicionar categorização se solicitado
+        # Add categorization if requested
         if categorize:
             real_inventory = categorize_inventory(real_inventory)
             
         return real_inventory
     
-    # Se falhar, tentar com a API oficial (se configurada)
+    # If it fails, try with official API (if configured)
     if STEAM_API_KEY:
-        print(f"Endpoint público falhou, tentando API oficial...")
+        print(f"Public endpoint failed, trying official API...")
         api_inventory = get_api_inventory(steamid)
         if api_inventory:
-            print(f"Inventário completo obtido via API oficial: {len(api_inventory.get('items', []))} itens encontrados")
+            print(f"Complete inventory obtained via official API: {len(api_inventory.get('items', []))} items found")
             
-            # Adicionar categorização se solicitado
+            # Add categorization if requested
             if categorize:
                 api_inventory = categorize_inventory(api_inventory)
                 
             return api_inventory
-        print("Falha ao obter inventário via API oficial.")
+        print("Failed to get inventory via official API.")
     else:
-        print("Chave API não configurada e endpoint público falhou.")
+        print("API key not configured and public endpoint failed.")
     
-    # Retornar inventário vazio em vez de dados mockados
-    print(f"Não foi possível obter inventário para {steamid} ou o inventário está vazio")
+    # Return empty inventory instead of mocked data
+    print(f"Unable to get inventory for {steamid} or inventory is empty")
     
-    # Criar um inventário vazio válido
+    # Create a valid empty inventory
     empty_inventory = {
         "steamid": steamid,
         "total_items": 0,
@@ -94,19 +94,19 @@ def get_inventory_value(steamid: str, categorize: bool = False) -> Dict[str, Any
 
 def get_api_inventory(steamid: str) -> Optional[Dict[str, Any]]:
     """
-    Obtém o inventário de um usuário da Steam usando a API oficial.
+    Gets a Steam user's inventory using the official API.
     
     Args:
-        steamid: ID da Steam do usuário
+        steamid: User's Steam ID
         
     Returns:
-        Dicionário com informações do inventário ou None se falhar
+        Dictionary with inventory information or None if it fails
     """
-    print(f"Tentando obter inventário via API oficial para {steamid}...")
+    print(f"Attempting to get inventory via official API for {steamid}...")
     
-    # Usar a API oficial para obter o inventário
-    # A API oficial IEconItems_730 já retorna todos os itens de uma vez
-    # sem necessidade de paginação na maioria dos casos
+    # Use official API to get inventory
+    # The official IEconItems_730 API already returns all items at once
+    # without pagination needed in most cases
     inventory_data = get_steam_api_data(
         "IEconItems_730",  # Interface para CS2
         "GetPlayerItems",  # Método
@@ -115,92 +115,92 @@ def get_api_inventory(steamid: str) -> Optional[Dict[str, Any]]:
     )
     
     if inventory_data:
-        print(f"Inventário obtido com sucesso via API oficial para {steamid}")
-        # Processar os dados da API oficial
+        print(f"Inventory successfully obtained via official API for {steamid}")
+        # Process official API data
         return process_api_inventory_data(inventory_data, steamid)
     else:
-        print(f"Falha ao obter inventário via API oficial para {steamid}")
+        print(f"Failed to get inventory via official API for {steamid}")
         
     return None
 
 
 def get_real_inventory(steamid: str, appid: int = None) -> Optional[Dict[str, Any]]:
     """
-    Obtém o inventário real de um usuário da Steam.
+    Gets a Steam user's real inventory.
     
     Args:
-        steamid: ID da Steam do usuário
-        appid: ID da aplicação na Steam. Se None, usa o valor de configuração
+        steamid: User's Steam ID
+        appid: Steam application ID. If None, uses configured value
         
     Returns:
-        Dicionário com informações do inventário ou None se falhar
+        Dictionary with inventory information or None if it fails
     """
     if appid is None:
         appid = STEAM_APPID
         
-    # Obter o inventário completo via endpoint público com suporte a paginação
+    # Get complete inventory via public endpoint with pagination support
     all_assets = []
     all_descriptions = []
     
-    # URL base da API de inventário
+    # Base URL for inventory API
     base_url = STEAM_INVENTORY_URL.format(steamid=steamid)
     
-    # Iniciar com a primeira página
+    # Start with first page
     url = base_url
     count = 0
-    max_tries = 30  # Aumentando o limite para mais páginas (era 10)
+    max_tries = 30  # Increased limit for more pages (was 10)
     
     try:
-        # Adicionar user-agent para evitar bloqueios
+        # Add user-agent to avoid blocks
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
-        # Loop para obter todas as páginas do inventário
+        # Loop to get all inventory pages
         while url and count < max_tries:
-            print(f"Buscando página {count+1} do inventário para {steamid}...")
+            print(f"Fetching page {count+1} of inventory for {steamid}...")
             
-            response = requests.get(url, headers=headers, timeout=15)  # Adicionado timeout
+            response = requests.get(url, headers=headers, timeout=15)  # Added timeout
             
             if response.status_code == 200:
                 inventory_data = response.json()
                 
-                # Verificar se há dados válidos
+                # Check if there's valid data
                 if "assets" not in inventory_data or "descriptions" not in inventory_data:
-                    print(f"Formato de inventário inválido na página {count+1}")
+                    print(f"Invalid inventory format on page {count+1}")
                     break
                 
-                # Adicionar assets e descriptions desta página
+                # Add assets and descriptions from this page
                 all_assets.extend(inventory_data.get("assets", []))
                 all_descriptions.extend(inventory_data.get("descriptions", []))
                 
-                # Verificar se há mais páginas
+                # Check if there are more pages
                 if "more_items" in inventory_data and inventory_data["more_items"] == 1:
-                    # Obter o último assetid para a próxima página
+                    # Get last assetid for next page
                     last_assetid = inventory_data.get("last_assetid")
                     if last_assetid:
-                        # Construir URL para a próxima página
+                        # Build URL for next page
                         url = f"{base_url}?start_assetid={last_assetid}"
                         
-                        # Aguardar antes da próxima requisição para evitar limite de taxa
+                        # Wait before next request to avoid rate limit
                         time.sleep(STEAM_REQUEST_DELAY * 1.5)
                     else:
-                        print("Não foi possível obter o ID do último item para paginação")
+                        print("Unable to get last item ID for pagination")
                         break
                 else:
-                    # Não há mais páginas
+                    # No more pages
                     break
                     
                 count += 1
-                print(f"Processada página {count} com {len(inventory_data.get('assets', []))} itens")
+                print(f"Processed page {count} with {len(inventory_data.get('assets', []))} items")
             elif response.status_code == 403:
-                print(f"Inventário privado ou não acessível para o usuário {steamid}")
+                print(f"Private or inaccessible inventory for user {steamid}")
                 return None
             else:
-                print(f"Erro ao acessar inventário: Status {response.status_code}")
+                print(f"Error accessing inventory: Status {response.status_code}")
                 return None
                 
-            # Respeitar limite de requisições
+            # Respect request limit
             time.sleep(STEAM_REQUEST_DELAY)
             
         # Combinar todas as páginas em um único objeto de inventário
@@ -213,13 +213,13 @@ def get_real_inventory(steamid: str, appid: int = None) -> Optional[Dict[str, An
         # Processar os dados do inventário combinado
         if all_assets:
             processed_inventory = process_inventory_data(combined_inventory, steamid)
-            print(f"Total de itens processados: {len(all_assets)} em {count} páginas")
+            print(f"Total items processed: {len(all_assets)} in {count} pages")
             return processed_inventory
         else:
-            print(f"Nenhum item encontrado no inventário de {steamid}")
+            print(f"No items found in inventory for {steamid}")
             
     except Exception as e:
-        print(f"Erro ao obter inventário para {steamid}: {e}")
+        print(f"Error getting inventory for {steamid}: {e}")
         import traceback
         traceback.print_exc()
     
@@ -251,12 +251,12 @@ def process_inventory_data(inventory_data: Dict[str, Any], steamid: str) -> Dict
     }
     
     try:
-        # Verifica se temos as informações necessárias
+        # Check if we have necessary information
         if "assets" not in inventory_data or "descriptions" not in inventory_data:
-            print("Formato de inventário inválido ou inventário vazio")
+            print("Invalid inventory format or empty inventory")
             return result
             
-        # Mapear 'descriptions' pelo classid para acesso rápido
+        # Map 'descriptions' by classid for fast access
         descriptions = {}
         for desc in inventory_data["descriptions"]:
             key = f"{desc.get('classid')}_{desc.get('instanceid')}"
@@ -283,13 +283,13 @@ def process_inventory_data(inventory_data: Dict[str, Any], steamid: str) -> Dict
             instanceid = asset.get("instanceid")
             amount = int(asset.get("amount", 1))
             
-            # Encontrar a descrição do item
+            # Find item description
             desc_key = f"{classid}_{instanceid}"
             if desc_key in descriptions:
                 processed_count += 1
                 desc = descriptions[desc_key]
                 
-                # Extrair informações relevantes
+                # Extract relevant information
                 market_hash_name = desc.get("market_hash_name", "")
                 name = desc.get("name", "")
                 type_info = desc.get("type", "")
@@ -306,7 +306,7 @@ def process_inventory_data(inventory_data: Dict[str, Any], steamid: str) -> Dict
                 # Item especial (StatTrak, Souvenir)
                 is_special = "StatTrak™" in name or "Souvenir" in name
                 
-                # Extrair URL de inspeção e obter valor float
+                # Extract inspection URL and get float value
                 inspect_url = extract_inspect_url(desc)
                 float_value = None
                 
@@ -341,11 +341,11 @@ def process_inventory_data(inventory_data: Dict[str, Any], steamid: str) -> Dict
                             if float_value is not None:
                                 price = adjust_price_by_float(price, float_value, market_hash_name)
                     except Exception as e:
-                        print(f"Erro ao obter preço para {market_hash_name}: {e}")
+                        print(f"Error getting price for {market_hash_name}: {e}")
                 
                 item_total = price * amount
                 
-                # Extrair categoria e tipo
+                # Extract category and type
                 category, item_type = parse_item_type(type_info, desc)
                 
                 # Verificar se o item tem tags que indicam qualidade/raridade 
@@ -432,12 +432,12 @@ def process_inventory_data(inventory_data: Dict[str, Any], steamid: str) -> Dict
             "items_with_float": sum(1 for item in processed_items if item.get("float_value") is not None)
         }
         
-        print(f"Processados {processed_count} itens, totalizando {result['total_items']} unidades, no valor de R$ {total_value:.2f}")
-        print(f"Itens valiosos: {valuable_count}, Adesivos: {sticker_count}")
-        print(f"Itens com float obtido: {result['stats']['items_with_float']}")
+        print(f"Processed {processed_count} items, totaling {result['total_items']} units, worth R$ {total_value:.2f}")
+        print(f"Valuable items: {valuable_count}, Stickers: {sticker_count}")
+        print(f"Items with float obtained: {result['stats']['items_with_float']}")
         
     except Exception as e:
-        print(f"Erro ao processar inventário: {e}")
+        print(f"Error processing inventory: {e}")
         import traceback
         traceback.print_exc()
         
@@ -466,13 +466,13 @@ def process_api_inventory_data(api_data: Dict[str, Any], steamid: str) -> Dict[s
     }
     
     try:
-        # Verifica se temos as informações necessárias
+        # Check if we have necessary information
         if "result" not in api_data or "status" not in api_data["result"] or api_data["result"]["status"] != 1:
-            print("Erro ao obter inventário ou inventário vazio")
+            print("Error getting inventory or inventory is empty")
             return result
             
         if "items" not in api_data["result"]:
-            print("Nenhum item encontrado no inventário")
+            print("No items found in inventory")
             return result
             
         # Processar cada item do inventário
@@ -545,13 +545,13 @@ def process_api_inventory_data(api_data: Dict[str, Any], steamid: str) -> Dict[s
             
             processed_items.append(processed_item)
         
-        print(f"Total de itens processados via API oficial: {processed_count} de {len(items_data)}")
-        print(f"Total de itens com valor: {items_with_value}")
-        print(f"Valor total do inventário: R$ {total_value:.2f}")
+        print(f"Total items processed via official API: {processed_count} of {len(items_data)}")
+        print(f"Total items with value: {items_with_value}")
+        print(f"Total inventory value: R$ {total_value:.2f}")
         
-        # Calcular valor médio por item (apenas para itens com valor)
+        # Calculate average value per item (only for items with value)
         average_value = total_value / items_with_value if items_with_value > 0 else 0
-        print(f"Valor médio por item: R$ {average_value:.2f}")
+        print(f"Average value per item: R$ {average_value:.2f}")
         
         # Atualizar resultados
         result["items"] = processed_items
@@ -561,7 +561,7 @@ def process_api_inventory_data(api_data: Dict[str, Any], steamid: str) -> Dict[s
         result["most_valuable_item"] = most_valuable_item
         
     except Exception as e:
-        print(f"Erro ao processar inventário via API: {e}")
+        print(f"Error processing inventory via API: {e}")
         import traceback
         traceback.print_exc()
         
@@ -570,14 +570,14 @@ def process_api_inventory_data(api_data: Dict[str, Any], steamid: str) -> Dict[s
 
 def parse_item_type(type_info: str, desc: Dict[str, Any]) -> tuple:
     """
-    Extrai a categoria e o tipo do item com base em suas informações.
+    Extracts the category and type of the item based on its information.
     
     Args:
-        type_info: Texto do tipo do item
-        desc: Descrição completa do item
+        type_info: Item type text
+        desc: Complete item description
         
     Returns:
-        Tupla (categoria, tipo)
+        Tuple (category, type)
     """
     category = "Outros"
     item_type = type_info
@@ -609,7 +609,7 @@ def parse_item_type(type_info: str, desc: Dict[str, Any]) -> tuple:
         elif "pin" in base_type or "patch" in base_type:
             category = "Souvenirs"
             
-    # Verificar tags para extrair informações adicionais
+    # Check tags to extract additional information
     tags = desc.get("tags", [])
     for tag in tags:
         if tag.get("category") == "Type":
@@ -627,38 +627,38 @@ def parse_item_type(type_info: str, desc: Dict[str, Any]) -> tuple:
 
 def get_item_image(desc: Dict) -> str:
     """
-    Obtém a URL da imagem do item.
+    Gets the item image URL.
     
     Args:
-        desc: Descrição do item
+        desc: Item description
         
     Returns:
-        URL da imagem
+        Image URL
     """
-    # Imagens grandes têm prioridade
+    # Large images have priority
     icon_url_large = desc.get("icon_url_large", "")
     if icon_url_large:
         return f"https://community.cloudflare.steamstatic.com/economy/image/{icon_url_large}"
     
-    # Se não houver imagem grande, usar a normal
+    # If no large image, use normal one
     icon_url = desc.get("icon_url", "")
     if icon_url:
         return f"https://community.cloudflare.steamstatic.com/economy/image/{icon_url}"
     
-    # Fallback: imagem padrão
+    # Fallback: default image
     return "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0ouqID2fIYCPBLi6NBg06GPAZN2nB-zeo5ObGFz3BQewrFAsHf_UF9mMba5rYPRQ81oQMrDTvkxUlUQIbPsleJED-4ngAb7oTkmM"
 
 
 def get_item_float(inspect_url: str) -> Optional[float]:
     """
-    Obtém o valor float (desgaste) de um item a partir da URL de inspeção.
-    Tenta usar a API CSGOFloat.
+    Gets the float value (wear) of an item from its inspection URL.
+    Tries to use CSGOFloat API.
     
     Args:
-        inspect_url: URL de inspeção do item
+        inspect_url: Item inspection URL
         
     Returns:
-        Valor float do item ou None se não for possível obter
+        Item float value or None if unable to get
     """
     if not inspect_url:
         return None
@@ -676,9 +676,9 @@ def get_item_float(inspect_url: str) -> Optional[float]:
                 float_value = data['iteminfo']['floatvalue']
                 return float_value
                 
-        print(f"Falha ao obter float via API: Status {response.status_code}")
+        print(f"Failed to get float via API: Status {response.status_code}")
     except Exception as e:
-        print(f"Erro ao obter valor float: {e}")
+        print(f"Error getting float value: {e}")
         
     return None
 
@@ -745,18 +745,18 @@ def categorize_inventory(inventory: Dict[str, Any]) -> Dict[str, Any]:
 
 def adjust_price_by_float(base_price: float, float_value: float, market_hash_name: str) -> float:
     """
-    Ajusta o preço de um item com base no valor float.
-    Itens com float baixo (mais novo) geralmente valem mais.
+    Adjusts an item's price based on float value.
+    Items with low float (newer) are generally worth more.
     
     Args:
-        base_price: Preço base do item
-        float_value: Valor float do item (0 a 1)
-        market_hash_name: Nome do item para casos especiais
+        base_price: Base item price
+        float_value: Item float value (0 to 1)
+        market_hash_name: Item name for special cases
         
     Returns:
-        Preço ajustado
+        Adjusted price
     """
-    # Ranges de desgaste: https://csgofloat.com/
+    # Wear ranges: https://csgofloat.com/
     # Factory New: 0.00 - 0.07
     # Minimal Wear: 0.07 - 0.15
     # Field-Tested: 0.15 - 0.38
@@ -830,16 +830,16 @@ def get_storage_unit_contents(unit_id: str, steamid: str, session_id: str, steam
         session_id: ID da sessão Steam do usuário autenticado
         steam_token: Token de autenticação Steam do usuário
         
-    Returns:
-        Dicionário com informações sobre o conteúdo da unidade
+        Returns:
+        Dictionary with information about unit contents
     """
     try:
-        print(f"Obtendo conteúdo da unidade {unit_id} para o usuário {steamid}")
+        print(f"Getting unit {unit_id} contents for user {steamid}")
         
-        # URL para a API de Storage Units da Steam
+        # URL for Steam Storage Units API
         storage_url = f"https://steamcommunity.com/inventory/{steamid}/730/2/storage/{unit_id}"
         
-        # Cabeçalhos necessários para autenticação
+        # Headers required for authentication
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Accept': 'application/json',
@@ -889,12 +889,12 @@ def get_storage_unit_contents(unit_id: str, steamid: str, session_id: str, steam
                     instanceid = asset.get("instanceid")
                     amount = int(asset.get("amount", 1))
                     
-                    # Encontrar a descrição do item
+                    # Find item description
                     desc_key = f"{classid}_{instanceid}"
                     if desc_key in descriptions:
                         desc = descriptions[desc_key]
                         
-                        # Extrair informações relevantes
+                        # Extract relevant information
                         market_hash_name = desc.get("market_hash_name", "")
                         name = desc.get("name", "")
                         type_info = desc.get("type", "")
@@ -906,7 +906,7 @@ def get_storage_unit_contents(unit_id: str, steamid: str, session_id: str, steam
                         # Item especial (StatTrak, Souvenir)
                         is_special = "StatTrak™" in name or "Souvenir" in name
                         
-                        # Extrair URL de inspeção e obter valor float
+                        # Extract inspection URL and get float value
                         inspect_url = extract_inspect_url(desc)
                         float_value = None
                         
@@ -937,11 +937,11 @@ def get_storage_unit_contents(unit_id: str, steamid: str, session_id: str, steam
                                 if float_value is not None:
                                     price = adjust_price_by_float(price, float_value, market_hash_name)
                             except Exception as e:
-                                print(f"Erro ao obter preço para {market_hash_name}: {e}")
+                                print(f"Error getting price for {market_hash_name}: {e}")
                         
                         item_total = price * amount
                         
-                        # Extrair categoria e tipo
+                        # Extract category and type
                         category, item_type = parse_item_type(type_info, desc)
                         
                         # Verificar se o item tem tags que indicam qualidade/raridade 
@@ -1010,11 +1010,11 @@ def get_storage_unit_contents(unit_id: str, steamid: str, session_id: str, steam
                     "total_value": 0.0,
                     "items": [],
                     "status": "no_data",
-                    "error": "Dados incompletos retornados pela API"
+                    "error": "Incomplete data returned by API"
                 }
         else:
-            print(f"Erro ao acessar unidade de armazenamento: código {response.status_code}")
-            print(f"Resposta: {response.text[:200]}...")
+            print(f"Error accessing storage unit: code {response.status_code}")
+            print(f"Response: {response.text[:200]}...")
             return {
                 "unit_id": unit_id,
                 "steamid": steamid,
@@ -1022,11 +1022,11 @@ def get_storage_unit_contents(unit_id: str, steamid: str, session_id: str, steam
                 "total_value": 0.0,
                 "items": [],
                 "status": "error",
-                "error": f"Erro ao acessar unidade: código {response.status_code}"
+                "error": f"Error accessing unit: code {response.status_code}"
             }
             
     except Exception as e:
-        print(f"Erro ao obter conteúdo da unidade {unit_id}: {str(e)}")
+        print(f"Error getting unit {unit_id} contents: {str(e)}")
         import traceback
         traceback.print_exc()
         

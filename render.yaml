@@ -6,17 +6,12 @@ services:
     startCommand: gunicorn -k uvicorn.workers.UvicornWorker -w 4 --timeout 120 --keep-alive 120 main:app -b 0.0.0.0:$PORT
     envVars:
       - key: PYTHON_VERSION
-        value: 3.10.0
-      - key: DATABASE_URL
-        value: postgresql://postgres:apuculacata@db.ykaatdxdvkcuryswejkm.supabase.co:5432/postgres?sslmode=prefer&application_name=elite-skins-api&connection_limit=5&keepalives=1&keepalives_idle=30
-      # Componentes separados como alternativa
-      - key: DB_HOST
-        value: db.ykaatdxdvkcuryswejkm.supabase.co
-      - key: DB_PORT
-        value: 5432
-      - key: DB_NAME
-        value: postgres
-      - key: DB_USER
-        value: postgres
-      - key: DB_PASSWORD
-        value: apuculacata 
+        value: 3.11.0
+      # DATABASE_URL: Configure in Render dashboard environment variables
+      # Recommended: Use Neon.tech PostgreSQL
+      # Example: postgresql://neondb_owner:password@ep-icy-hill-aemvtr7r-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+      # See NEON_DATABASE.md for detailed setup instructions
+      # 
+      # Alternative options:
+      # - If you create a PostgreSQL service on Render, it will automatically create the DATABASE_URL variable
+      # - Or configure manually with separate components: DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD 

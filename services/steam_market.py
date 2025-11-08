@@ -62,9 +62,9 @@ def sleep_between_requests(min_delay=STEAM_REQUEST_DELAY):
     current_time = time.time()
     elapsed = current_time - last_request_time
     
-    # Se o tempo desde a última requisição for menor que o delay mínimo
+    # If time since last request is less than minimum delay
     if elapsed < min_delay:
-        # Aumentar o delay para evitar o erro 429 (Too Many Requests)
+        # Increase delay to avoid 429 error (Too Many Requests)
         sleep_time = min(min_delay - elapsed + random.uniform(1.0, 3.0), 5.0)
         
         if sleep_time > 0:
@@ -157,7 +157,7 @@ def extract_price_from_text(price_text: str, currency_code: int = STEAM_MARKET_C
             "currency": original_currency
         }
     except (ValueError, AttributeError):
-        print(f"Erro ao extrair preço do texto: '{price_text}'")
+        print(f"Error extracting price from text: '{price_text}'")
         return None
 
 
@@ -185,7 +185,7 @@ def get_item_price_via_scraping(market_hash_name: str, appid: int = STEAM_APPID,
     print(f"DEBUGGING: Obtendo preço para '{market_hash_name}'")
     print(f"DEBUGGING: URL de consulta sem AppID: {url}")
 
-    # Aguardar tempo entre requisições
+    # Wait time between requests
     sleep_between_requests()
     
     headers = {
@@ -476,13 +476,13 @@ def get_item_price_via_csgostash(market_hash_name: str, currency: int = STEAM_MA
     print(f"DEBUGGING: URL de consulta: {url}")
     print(f"DEBUGGING: Condição: {condition}, StatTrak: {is_stattrak}")
 
-    # Aguardar tempo entre requisições
+    # Wait time between requests
     sleep_between_requests()
     
-    # Usar o User-Agent de iPhone que funcionou nos testes
+    # Use iPhone User-Agent that worked in tests
     headers = {
         'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',  # Definir português para obter preços em BRL
+        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',  # Set Portuguese to get prices in BRL
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Cache-Control': 'no-cache',
         'Referer': 'https://www.google.com/'
@@ -669,15 +669,15 @@ def get_item_price_via_csgostash(market_hash_name: str, currency: int = STEAM_MA
     
     return None
 
-# Função auxiliar para processar o preço com base no símbolo e texto
+# Helper function to process price based on symbol and text
 def _process_price(symbol: str, price_text: str) -> Dict:
-    """Converte texto do preço para um dicionário com preço e moeda."""
+    """Converts price text to a dictionary with price and currency."""
     try:
         if symbol == 'R$':
-            # Formato brasileiro: R$ 10,50
+            # Brazilian format: R$ 10,50
             price_value = float(price_text.replace('.', '').replace(',', '.'))
         else:
-            # Formato internacional: $10.50
+            # International format: $10.50
             price_value = float(price_text.replace(',', ''))
         
         return {
@@ -890,7 +890,7 @@ def get_steam_api_data(interface: str, method: str, version: str, params: dict) 
     api_params['key'] = STEAM_API_KEY
     
     try:
-        # Aguardar tempo apropriado entre requisições
+        # Wait appropriate time between requests
         sleep_between_requests()
         
         response = requests.get(url, params=api_params, timeout=15)
@@ -898,12 +898,12 @@ def get_steam_api_data(interface: str, method: str, version: str, params: dict) 
         if response.status_code == 200:
             return response.json()
         else:
-            print(f"Erro na API oficial da Steam: Status {response.status_code}, URL: {url}")
+            print(f"Error in official Steam API: Status {response.status_code}, URL: {url}")
             if response.status_code == 403:
-                print("Erro de autenticação: Verifique se a chave API está correta e tem as permissões necessárias.")
+                print("Authentication error: Verify that the API key is correct and has necessary permissions.")
     
     except Exception as e:
-        print(f"Erro ao chamar API oficial da Steam: {e}")
+        print(f"Error calling official Steam API: {e}")
         
     return None
 
@@ -928,7 +928,7 @@ def get_item_listings_page(market_hash_name: str, appid: int = None) -> Optional
     url = f"{STEAM_MARKET_BASE_URL}/{appid}/{encoded_name}"
     
     try:
-        # Aguardar tempo apropriado entre requisições
+        # Wait appropriate time between requests
         sleep_between_requests()
         
         headers = {
@@ -940,10 +940,10 @@ def get_item_listings_page(market_hash_name: str, appid: int = None) -> Optional
         if response.status_code == 200:
             return response.text
         else:
-            print(f"Erro ao acessar página do mercado: Status {response.status_code}")
+            print(f"Error accessing market page: Status {response.status_code}")
             
     except Exception as e:
-        print(f"Erro ao obter página de listagens para {market_hash_name}: {e}")
+        print(f"Error getting listings page for {market_hash_name}: {e}")
     
     return None
 
@@ -995,11 +995,11 @@ def get_api_status() -> Dict[str, Any]:
             }
         
     except Exception as e:
-        print(f"Erro ao testar sistema de scraping CSGOStash: {e}")
+        print(f"Error testing CSGOStash scraping system: {e}")
         result["scraping_error"] = str(e)
     
     # Testar conexão com API oficial da Steam (somente para fins de diagnóstico)
-    # Nota: Essa API NÃO é usada para obter preços, apenas para outros dados
+    # Note: This API is NOT used to get prices, only for other data
     if STEAM_API_KEY:
         try:
             # Teste simples com a interface ISteamUser
@@ -1020,7 +1020,7 @@ def get_api_status() -> Dict[str, Any]:
                 }
                 
         except Exception as e:
-            print(f"Erro ao testar API oficial da Steam: {e}")
+            print(f"Error testing official Steam API: {e}")
             result["web_api_error"] = str(e)
     
     return result
