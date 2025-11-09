@@ -17,7 +17,7 @@ import asyncio
 # Importando serviços e configurações
 from services.steam_inventory import get_inventory_value, get_storage_unit_contents
 from services.case_evaluator import get_case_details, list_cases
-from services.steam_market import get_item_price, get_api_status, get_item_price_via_csgostash
+from services.steam_market import get_item_price, get_api_status, get_item_price_via_csgostash, price_cache
 from utils.config import get_api_config
 from utils.database import init_db, get_stats, get_db_connection
 from utils.price_updater import run_scheduler, force_update_now, get_scheduler_status, schedule_weekly_update
@@ -1033,6 +1033,102 @@ async def test_csgostash(market_hash_name: str):
     except Exception as e:
         import traceback
         return {
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
+@app.delete("/cache/price/{market_hash_name}")
+async def clear_price_cache(market_hash_name: str, currency: int = Query(1, description="Currency code (1=USD, 7=BRL, etc.)"), appid: int = Query(730, description="Steam App ID")):
+    """
+    Clears the cache for a specific item price.
+    This forces a fresh scrape from CSGOSkins.gg on the next request.
+    
+    Args:
+        market_hash_name: The market hash name of the item (e.g., "AK-47 | Redline")
+        currency: Currency code (default: 1 for USD)
+        appid: Steam App ID (default: 730 for CS2)
+    """
+    try:
+        # Clear from memory cache
+        cache_key = f"{market_hash_name}_{currency}_{appid}"
+        if cache_key in price_cache:
+            del price_cache[cache_key]
+            memory_cleared = True
+        else:
+            memory_cleared = False
+        
+        # Clear from database
+        db_cleared = False
+        try:
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "DELETE FROM skin_prices WHERE market_hash_name = %s AND currency = %s AND app_id = %s",
+                    (market_hash_name, currency, appid)
+                )
+                deleted_count = cursor.rowcount
+                conn.commit()
+                conn.close()
+                db_cleared = deleted_count > 0
+        except Exception as db_error:
+            print(f"Error clearing database cache: {db_error}")
+        
+        return {
+            "success": True,
+            "market_hash_name": market_hash_name,
+            "currency": currency,
+            "appid": appid,
+            "memory_cache_cleared": memory_cleared,
+            "database_cache_cleared": db_cleared,
+            "message": f"Cache cleared for {market_hash_name}. Next request will fetch fresh data."
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
+@app.delete("/cache/price")
+async def clear_all_price_cache():
+    """
+    Clears all price caches (memory and database).
+    Use with caution - this will force all items to be scraped again.
+    """
+    try:
+        # Clear all memory cache
+        memory_count = len(price_cache)
+        price_cache.clear()
+        
+        # Clear all database cache
+        db_cleared = False
+        db_count = 0
+        try:
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM skin_prices")
+                db_count = cursor.rowcount
+                conn.commit()
+                conn.close()
+                db_cleared = True
+        except Exception as db_error:
+            print(f"Error clearing database cache: {db_error}")
+        
+        return {
+            "success": True,
+            "memory_cache_cleared": memory_count,
+            "database_cache_cleared": db_count,
+            "message": f"All caches cleared. {memory_count} items from memory, {db_count} items from database."
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "success": False,
             "error": str(e),
             "traceback": traceback.format_exc()
         }

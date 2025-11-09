@@ -515,48 +515,62 @@ def get_item_detailed_data_via_csgostash(market_hash_name: str, currency: int = 
         }
         
         # Extrair imagem da arma
-        # Tentar vários seletores possíveis para a imagem principal
-        image_selectors = [
-            'img[alt*="' + base_name.split('|')[0].strip() + '"]',  # Nome da arma
-            'img[alt*="' + base_name.split('|')[-1].strip() + '"]',  # Nome da skin
-            'img[src*="/items/"]',
-            'div[class*="item"] img',
-            'div[class*="image"] img',
-            'main img[src*=".png"]',
-            'main img[src*=".jpg"]',
-            'main img[src*=".webp"]',
-            'img.item-image',
-            'img[class*="weapon"]',
-            'img[class*="skin"]'
+        # A imagem está em <img id="main-image" src="..." data-image-url="...">
+        # Ambos src e data-image-url têm a mesma URL, usar src como padrão
+        main_image = None
+        
+        # Tentar diferentes sintaxes de seletor
+        selectors_to_try = [
+            'img#main-image',
+            'img[id="main-image"]',
+            '#main-image'
         ]
         
-        # Também procurar por padrões no HTML
-        img_pattern = r'<img[^>]+src=["\']([^"\']*(?:ak-47|redline|weapon|skin|item)[^"\']*\.(?:png|jpg|webp|jpeg))["\']'
-        img_matches = re.findall(img_pattern, html_text, re.IGNORECASE)
-        
-        if img_matches:
-            for img_src in img_matches:
-                if img_src:
-                    # Garantir URL absoluta
-                    if img_src.startswith('//'):
-                        img_src = 'https:' + img_src
-                    elif img_src.startswith('/'):
-                        img_src = 'https://csgoskins.gg' + img_src
-                    elif not img_src.startswith('http'):
-                        img_src = 'https://csgoskins.gg' + img_src
-                    result["image_url"] = img_src
-                    print(f"DEBUGGING: Imagem encontrada via regex: {img_src}")
+        for selector in selectors_to_try:
+            try:
+                main_image = parser.css_first(selector)
+                if main_image:
+                    print(f"DEBUGGING: Imagem encontrada usando selector '{selector}'")
                     break
+            except Exception as e:
+                print(f"DEBUGGING: Erro ao tentar selector '{selector}': {e}")
+                continue
         
-        # Se não encontrou via regex, tentar seletores CSS
-        if not result["image_url"]:
+        if main_image:
+            # Usar src primeiro (é a URL principal), depois data-image-url como fallback
+            img_src = main_image.attributes.get('src') or main_image.attributes.get('data-image-url')
+            
+            if img_src:
+                # Garantir URL absoluta
+                if img_src.startswith('//'):
+                    img_src = 'https:' + img_src
+                elif img_src.startswith('/'):
+                    img_src = 'https://csgoskins.gg' + img_src
+                elif not img_src.startswith('http'):
+                    img_src = 'https://csgoskins.gg' + img_src
+                
+                result["image_url"] = img_src
+                print(f"DEBUGGING: URL da imagem extraída: {img_src}")
+            else:
+                print(f"DEBUGGING: img#main-image encontrado mas sem src ou data-image-url")
+                print(f"DEBUGGING: Atributos disponíveis: {list(main_image.attributes.keys())}")
+        else:
+            print(f"DEBUGGING: img#main-image não encontrado com nenhum seletor, tentando fallback...")
+            # Fallback: tentar outros seletores se não encontrou
+            image_selectors = [
+                'img[alt*="' + base_name.split('|')[0].strip() + '"]',
+                'img[alt*="' + base_name.split('|')[-1].strip() + '"]',
+                'div.aspect-4\\/3 img',
+                'div[class*="aspect"] img',
+                'img[alt="' + base_name + '"]'
+            ]
+            
             for selector in image_selectors:
                 try:
                     img_element = parser.css_first(selector)
                     if img_element:
-                        img_src = img_element.attributes.get('src') or img_element.attributes.get('data-src') or img_element.attributes.get('data-lazy-src')
-                        if img_src and ('png' in img_src.lower() or 'jpg' in img_src.lower() or 'webp' in img_src.lower()):
-                            # Garantir URL absoluta
+                        img_src = img_element.attributes.get('src') or img_element.attributes.get('data-src') or img_element.attributes.get('data-image-url')
+                        if img_src:
                             if img_src.startswith('//'):
                                 img_src = 'https:' + img_src
                             elif img_src.startswith('/'):
@@ -564,123 +578,297 @@ def get_item_detailed_data_via_csgostash(market_hash_name: str, currency: int = 
                             elif not img_src.startswith('http'):
                                 img_src = 'https://csgoskins.gg' + img_src
                             result["image_url"] = img_src
-                            print(f"DEBUGGING: Imagem encontrada via CSS selector '{selector}': {img_src}")
+                            print(f"DEBUGGING: Imagem encontrada via fallback selector '{selector}': {img_src}")
                             break
                 except Exception as e:
+                    print(f"DEBUGGING: Erro ao tentar selector '{selector}': {e}")
                     continue
         
-        # Extrair informações básicas (raridade, categoria, arma)
-        # Procurar por badges/pills com informações
-        all_text = parser.body.text() if parser.body else ""
+        # Extrair informações básicas usando seletores CSS específicos
+        # A página tem uma seção "Summary" que contém as informações corretas
+        # Estrutura: Summary > Category, Type, Weapon
         
-        # Extrair raridade (Classified, Covert, etc.)
-        rarity_patterns = ['Classified', 'Covert', 'Restricted', 'Mil-Spec', 'Consumer', 'Exceedingly Rare']
-        for rarity in rarity_patterns:
-            if rarity.lower() in all_text.lower():
-                result["rarity"] = rarity
+        # Extrair título da página para validação
+        title_element = parser.css_first('title')
+        page_title = title_element.text().strip() if title_element else ""
+        print(f"DEBUGGING: Título da página: {page_title}")
+        
+        # Normalizar o nome base para comparação
+        base_name_parts = base_name.split('|')
+        weapon_name_from_base = base_name_parts[0].strip() if '|' in base_name else base_name.split()[0] if base_name.split() else ""
+        
+        print(f"DEBUGGING: Procurando informações para '{base_name}'")
+        print(f"DEBUGGING: Nome da arma esperado (do base_name): '{weapon_name_from_base}'")
+        
+        # Estratégia: encontrar a seção "Summary" ou o conteúdo principal
+        # Procurar por um elemento que contenha "Summary" ou por uma estrutura específica
+        # Primeiro, tentar encontrar links que estejam próximos ao título principal do item
+        
+        # Encontrar o título principal do item (geralmente um h1 ou h2)
+        main_title = None
+        title_selectors = ['h1', 'h2', '[class*="title"]', '[id*="title"]']
+        for selector in title_selectors:
+            title_elem = parser.css_first(selector)
+            if title_elem and base_name.split('|')[0].strip().lower() in title_elem.text().lower():
+                main_title = title_elem
+                print(f"DEBUGGING: Título principal encontrado: {title_elem.text().strip()}")
                 break
         
-        # Extrair categoria e tipo de arma do texto
-        if 'rifle' in all_text.lower():
-            result["category"] = "Rifle"
-        elif 'pistol' in all_text.lower():
-            result["category"] = "Pistol"
-        elif 'knife' in all_text.lower():
-            result["category"] = "Knife"
-        elif 'gloves' in all_text.lower() or 'glove' in all_text.lower():
-            result["category"] = "Gloves"
+        # Se não encontrou título específico, procurar por seção Summary
+        # A seção Summary geralmente tem estrutura: Summary > Category, Type, Weapon
+        # Procurar por texto "Summary" e então encontrar elementos próximos
         
-        # Extrair nome da arma (ex: AK-47)
-        weapon_match = re.search(r'(AK-47|AWP|M4A4|M4A1-S|Desert Eagle|Glock|USP-S|P250|Five-SeveN|Tec-9|CZ75|R8|Dual Berettas|P2000)', all_text, re.IGNORECASE)
-        if weapon_match:
-            result["weapon"] = weapon_match.group(1)
+        # Extrair informações da seção Summary usando texto estruturado
+        # Procurar por padrões como "Weapon\nAK-47", "Type\nRifle", "Category\nSkin"
+        all_text = parser.body.text() if parser.body else ""
         
-        # Extrair preços por wear condition
-        # Usar uma abordagem mais estruturada baseada na organização da página
-        all_text_lower = html_text.lower()
+        # Extrair Weapon usando links de weapon (mais confiável que regex)
+        # A regex pode pegar texto do menu lateral, então vamos usar apenas links
+        weapon_links = parser.css('a[href*="/weapons/"]')
+        print(f"DEBUGGING: Encontrados {len(weapon_links)} links de weapon")
         
-        # Mapeamento de wear conditions para padrões de busca
-        wear_patterns = {
-            "factory_new": [r'factory\s+new', r'\bfn\b'],
-            "minimal_wear": [r'minimal\s+wear', r'\bmw\b'],
-            "field_tested": [r'field[- ]tested', r'\bft\b'],
-            "well_worn": [r'well[- ]worn', r'\bww\b'],
-            "battle_scarred": [r'battle[- ]scarred', r'\bbs\b']
-        }
-        
-        # Padrão para extrair preços
-        price_pattern = r'(\$|R\$|€|£|¥)\s*([0-9]{1,3}(?:[.,][0-9]{2,3})*(?:[.,][0-9]{2})?)'
-        
-        # Dividir HTML em seções para análise mais precisa
-        # Procurar por seções que contenham informações de preços organizadas
-        
-        # Estratégia 1: Procurar por padrões estruturados (wear condition seguido de preço)
-        for wear_key, wear_patterns_list in wear_patterns.items():
-            for wear_pattern in wear_patterns_list:
-                # Procurar todas as ocorrências do padrão de wear
-                for match in re.finditer(wear_pattern, html_text, re.IGNORECASE):
-                    # Pegar contexto maior ao redor (até 300 caracteres)
-                    start_pos = max(0, match.start() - 150)
-                    end_pos = min(len(html_text), match.end() + 300)
-                    context = html_text[start_pos:end_pos]
-                    context_lower = context.lower()
-                    
-                    # Verificar se é StatTrak (procurar antes do wear pattern)
-                    is_stattrak = False
-                    # Verificar se há "stattrak" antes do wear pattern no contexto
-                    pre_context = html_text[max(0, match.start() - 100):match.start()].lower()
-                    if 'stattrak' in pre_context or 'stattrak' in context_lower[:200]:
-                        is_stattrak = True
-                    
-                    # Verificar se não é "Not possible"
-                    if 'not possible' in context_lower:
-                        print(f"DEBUGGING: {wear_key} marcado como 'Not possible'")
-                        continue
-                    
-                    # Procurar preço no contexto (procurar após o wear pattern)
-                    post_context = context[match.end() - start_pos:]
-                    price_matches = re.findall(price_pattern, post_context)
-                    
-                    if price_matches:
-                        # Pegar o primeiro preço válido encontrado após o wear pattern
-                        for symbol, price_text in price_matches:
-                            try:
-                                # Converter preço
-                                if symbol == 'R$':
-                                    # Formato brasileiro: R$ 1.234,56
-                                    price_value = float(price_text.replace('.', '').replace(',', '.'))
-                                else:
-                                    # Formato internacional: $1234.56
-                                    price_value = float(price_text.replace(',', ''))
-                                
-                                # Validar preço (deve ser razoável)
-                                if 0.01 <= price_value <= 100000:
-                                    if is_stattrak:
-                                        if result["prices"]["stattrak"][wear_key] is None:
-                                            result["prices"]["stattrak"][wear_key] = price_value
-                                            currency_map = {'$': 'USD', 'R$': 'BRL', '€': 'EUR', '£': 'GBP', '¥': 'CNY'}
-                                            result["currency"] = currency_map.get(symbol, 'USD')
-                                            print(f"DEBUGGING: Preço StatTrak {wear_key}: {symbol}{price_value}")
-                                    else:
-                                        if result["prices"]["normal"][wear_key] is None:
-                                            result["prices"]["normal"][wear_key] = price_value
-                                            currency_map = {'$': 'USD', 'R$': 'BRL', '€': 'EUR', '£': 'GBP', '¥': 'CNY'}
-                                            result["currency"] = currency_map.get(symbol, 'USD')
-                                            print(f"DEBUGGING: Preço Normal {wear_key}: {symbol}{price_value}")
-                                    break
-                            except ValueError as e:
-                                print(f"DEBUGGING: Erro ao converter preço '{price_text}': {e}")
-                                continue
+        if weapon_links:
+            weapon_name_from_base_normalized = weapon_name_from_base.lower().replace(' ', '-').replace('_', '-').strip()
+            print(f"DEBUGGING: Procurando weapon que corresponda a '{weapon_name_from_base_normalized}'")
+            
+            # Primeiro, tentar encontrar correspondência exata
+            exact_match = None
+            partial_match = None
+            
+            for link in weapon_links:
+                weapon_text = link.text().strip()
+                href = link.attributes.get('href', '')
                 
-                # Se já encontrou preço para este wear (normal ou stattrak), passar para o próximo
-                if result["prices"]["normal"][wear_key] is not None or result["prices"]["stattrak"][wear_key] is not None:
+                if not weapon_text:
+                    continue
+                
+                weapon_normalized = weapon_text.lower().replace(' ', '-').replace('_', '-').strip()
+                
+                print(f"DEBUGGING: Comparando '{weapon_name_from_base_normalized}' com '{weapon_normalized}' (href: {href})")
+                
+                # Verificar correspondência exata ou muito próxima
+                if weapon_name_from_base_normalized:
+                    # Correspondência exata
+                    if weapon_name_from_base_normalized == weapon_normalized:
+                        exact_match = weapon_text
+                        print(f"DEBUGGING: Match EXATO encontrado: {weapon_text}")
+                        break
+                    # Correspondência parcial (um contém o outro)
+                    elif (weapon_name_from_base_normalized in weapon_normalized or 
+                          weapon_normalized in weapon_name_from_base_normalized):
+                        if not exact_match:  # Ainda não temos match exato
+                            exact_match = weapon_text
+                            print(f"DEBUGGING: Match parcial encontrado: {weapon_text}")
+                    # Verificar se o texto da arma está no nome base ou título
+                    elif weapon_text.lower() in base_name.lower() or weapon_text.lower() in page_title.lower():
+                        if not partial_match:
+                            partial_match = weapon_text
+                            print(f"DEBUGGING: Match no título/base_name: {weapon_text}")
+            
+            # Usar correspondência exata primeiro, depois parcial
+            if exact_match:
+                result["weapon"] = exact_match
+                print(f"DEBUGGING: Weapon selecionado: {exact_match}")
+            elif partial_match:
+                result["weapon"] = partial_match
+                print(f"DEBUGGING: Weapon selecionado (parcial): {partial_match}")
+            else:
+                # Se não encontrou correspondência, usar o primeiro link curto e válido
+                for link in weapon_links:
+                    weapon_text = link.text().strip()
+                    if weapon_text and len(weapon_text) <= 30 and weapon_text.replace('-', '').replace(' ', '').isalnum():
+                        result["weapon"] = weapon_text
+                        print(f"DEBUGGING: Weapon selecionado (fallback): {weapon_text}")
+                        break
+        
+        # Extrair Type da seção Summary
+        type_match = re.search(r'Type\s*\n?\s*([A-Za-z\s]+)', all_text, re.IGNORECASE | re.MULTILINE)
+        if type_match:
+            type_found = type_match.group(1).strip()
+            # Limpar possíveis quebras de linha e espaços extras
+            type_found = ' '.join(type_found.split())
+            if type_found.lower() in ['rifle', 'pistol', 'knife', 'gloves', 'sniper rifle', 'smg', 'shotgun', 'machinegun']:
+                result["category"] = type_found
+                print(f"DEBUGGING: Type encontrado na seção Summary: {type_found}")
+        
+        # Se não encontrou via regex, tentar links de type
+        if not result["category"]:
+            type_links = parser.css('a[href*="/types/"]')
+            for link in type_links:
+                type_text = link.text().strip()
+                if type_text and type_text.lower() in ['rifle', 'pistol', 'knife', 'gloves', 'sniper rifle', 'smg', 'shotgun', 'machinegun']:
+                    result["category"] = type_text
+                    print(f"DEBUGGING: Type encontrado via link: {type_text}")
                     break
         
-        # Calcular range de preços
+        # Extrair Category da seção Summary
+        category_match = re.search(r'Category\s*\n?\s*([A-Za-z\s]+)', all_text, re.IGNORECASE | re.MULTILINE)
+        if category_match:
+            category_found = category_match.group(1).strip()
+            # Limpar possíveis quebras de linha e espaços extras
+            category_found = ' '.join(category_found.split())
+            # Se ainda não temos category, usar este
+            if not result["category"]:
+                result["category"] = category_found.capitalize() if category_found.lower() == 'skin' else category_found
+                print(f"DEBUGGING: Category encontrado na seção Summary: {category_found}")
+        
+        # Extrair Rarity da seção "Item Class"
+        # Procurar por padrão "Item Class" seguido da raridade (pode estar em linhas diferentes)
+        rarity_match = re.search(r'Item Class\s*\n?\s*([A-Za-z\s]+)', all_text, re.IGNORECASE | re.MULTILINE)
+        if rarity_match:
+            rarity_found = rarity_match.group(1).strip()
+            # Limpar possíveis quebras de linha e espaços extras
+            rarity_found = ' '.join(rarity_found.split())
+            rarity_patterns = ['Classified', 'Covert', 'Restricted', 'Mil-Spec', 'Consumer', 'Exceedingly Rare', 'Legendary']
+            for rarity in rarity_patterns:
+                if rarity.lower() in rarity_found.lower():
+                    result["rarity"] = rarity
+                    print(f"DEBUGGING: Rarity encontrado na seção Item Class: {rarity}")
+                    break
+        
+        # Se não encontrou via regex, tentar links de rarity
+        if not result["rarity"]:
+            rarity_links = parser.css('a[href*="/rarities/"]')
+            for link in rarity_links:
+                rarity_text = link.text().strip()
+                if rarity_text:
+                    rarity_patterns = ['Classified', 'Covert', 'Restricted', 'Mil-Spec', 'Consumer', 'Exceedingly Rare', 'Legendary']
+                    for rarity in rarity_patterns:
+                        if rarity.lower() in rarity_text.lower():
+                            result["rarity"] = rarity
+                            print(f"DEBUGGING: Rarity encontrado via link: {rarity}")
+                            break
+                    if result["rarity"]:
+                        break
+        
+        # Extrair preços por wear condition usando seletores CSS específicos
+        # Estrutura: <div class="relative flex px-4 py-2"> contém wear condition e preço
+        print(f"DEBUGGING: Extraindo preços usando seletores CSS específicos...")
+        
+        # Mapeamento de wear conditions
+        wear_map = {
+            "factory new": "factory_new",
+            "minimal wear": "minimal_wear",
+            "field-tested": "field_tested",
+            "well-worn": "well_worn",
+            "battle-scarred": "battle_scarred"
+        }
+        
+        # Encontrar todos os divs que contêm informações de preço
+        # Estrutura: <div class="relative flex px-4 py-2"> com wear condition e preço
+        # Usar seletor mais flexível para capturar todos os divs com essas classes
+        price_divs = parser.css('div.relative.flex')
+        
+        # Filtrar apenas os que têm px-4 e py-2 (pode estar em qualquer ordem)
+        filtered_divs = []
+        for div in price_divs:
+            classes = div.attributes.get('class', '')
+            if 'px-4' in classes and 'py-2' in classes:
+                filtered_divs.append(div)
+        
+        price_divs = filtered_divs
+        
+        print(f"DEBUGGING: Encontrados {len(price_divs)} divs de preço")
+        
+        for div in price_divs:
+            # Obter todo o texto do div
+            div_text = div.text()
+            # Obter HTML do div (usar método do selectolax)
+            try:
+                div_html = str(div)
+            except:
+                div_html = ""
+            
+            # Verificar se contém "Not possible"
+            if 'not possible' in div_text.lower():
+                # Identificar qual wear condition é "Not possible"
+                for wear_name, wear_key in wear_map.items():
+                    if wear_name in div_text.lower():
+                        # Verificar se é StatTrak
+                        is_stattrak = 'stattrak' in div_text.lower() or 'stattrak' in div_html.lower()
+                        
+                        if is_stattrak:
+                            if result["prices"]["stattrak"][wear_key] is None:
+                                result["prices"]["stattrak"][wear_key] = None  # Explicitamente None
+                                print(f"DEBUGGING: StatTrak {wear_key} marcado como 'Not possible'")
+                        else:
+                            if result["prices"]["normal"][wear_key] is None:
+                                result["prices"]["normal"][wear_key] = None  # Explicitamente None
+                                print(f"DEBUGGING: Normal {wear_key} marcado como 'Not possible'")
+                        break
+                continue
+            
+            # Procurar por preço dentro do div
+            # O preço está em <span class="font-bold">$260.59</span>
+            price_span = div.css_first('span.font-bold')
+            
+            if price_span:
+                price_text = price_span.text().strip()
+                print(f"DEBUGGING: Preço encontrado no span: '{price_text}'")
+                
+                # Extrair valor numérico
+                price_match = re.search(r'(\$|R\$|€|£|¥)\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{2})?|[0-9]+\.[0-9]{2})', price_text)
+                
+                if price_match:
+                    symbol = price_match.group(1)
+                    price_str = price_match.group(2)
+                    
+                    try:
+                        # Converter preço
+                        if symbol == 'R$':
+                            price_value = float(price_str.replace('.', '').replace(',', '.'))
+                        else:
+                            price_value = float(price_str.replace(',', ''))
+                        
+                        # Identificar wear condition no div
+                        is_stattrak = False
+                        wear_found = None
+                        
+                        # Verificar se há span com StatTrak (cor #f89406 ou texto "StatTrak")
+                        # StatTrak aparece em <span style="color: #f89406">StatTrak</span>
+                        stattrak_spans = div.css('span')
+                        for span in stattrak_spans:
+                            span_text = span.text().lower()
+                            span_style = span.attributes.get('style', '')
+                            # Verificar se é o span laranja (#f89406) com texto StatTrak
+                            if ('#f89406' in span_style or 'color: #f89406' in span_style) and 'stattrak' in span_text:
+                                is_stattrak = True
+                                print(f"DEBUGGING: StatTrak detectado via span com cor #f89406")
+                                break
+                        
+                        # Fallback: verificar se "StatTrak" aparece no texto do div
+                        if not is_stattrak and 'stattrak' in div_text.lower():
+                            is_stattrak = True
+                            print(f"DEBUGGING: StatTrak detectado via texto do div")
+                        
+                        # Procurar wear condition no texto
+                        for wear_name, wear_key in wear_map.items():
+                            if wear_name in div_text.lower():
+                                wear_found = wear_key
+                                break
+                        
+                        if wear_found and 0.01 <= price_value <= 100000:
+                            if is_stattrak:
+                                if result["prices"]["stattrak"][wear_found] is None:
+                                    result["prices"]["stattrak"][wear_found] = price_value
+                                    currency_map = {'$': 'USD', 'R$': 'BRL', '€': 'EUR', '£': 'GBP', '¥': 'CNY'}
+                                    result["currency"] = currency_map.get(symbol, 'USD')
+                                    print(f"DEBUGGING: Preço StatTrak {wear_found}: {symbol}{price_value}")
+                            else:
+                                if result["prices"]["normal"][wear_found] is None:
+                                    result["prices"]["normal"][wear_found] = price_value
+                                    currency_map = {'$': 'USD', 'R$': 'BRL', '€': 'EUR', '£': 'GBP', '¥': 'CNY'}
+                                    result["currency"] = currency_map.get(symbol, 'USD')
+                                    print(f"DEBUGGING: Preço Normal {wear_found}: {symbol}{price_value}")
+                    except ValueError as e:
+                        print(f"DEBUGGING: Erro ao converter preço '{price_str}': {e}")
+                        continue
+        
+        # Calcular range de preços (ignorar None)
         all_price_values = []
         for wear_prices in [result["prices"]["normal"], result["prices"]["stattrak"]]:
             for price in wear_prices.values():
-                if price is not None:
+                if price is not None and isinstance(price, (int, float)) and price > 0:
                     all_price_values.append(price)
         
         if all_price_values:
@@ -688,16 +876,24 @@ def get_item_detailed_data_via_csgostash(market_hash_name: str, currency: int = 
                 "min": min(all_price_values),
                 "max": max(all_price_values)
             }
-            # Usar preço médio como price padrão (ou Field-Tested se disponível)
-            if result["prices"]["normal"]["field_tested"]:
+            # Usar Field-Tested como padrão se disponível, senão usar o menor preço disponível
+            if result["prices"]["normal"]["field_tested"] is not None:
                 result["price"] = result["prices"]["normal"]["field_tested"]
+            elif result["prices"]["normal"]["minimal_wear"] is not None:
+                result["price"] = result["prices"]["normal"]["minimal_wear"]
             else:
-                result["price"] = sum(all_price_values) / len(all_price_values)
+                # Usar o menor preço disponível
+                result["price"] = min(all_price_values)
         else:
-            result["price_range"] = {"min": 0, "max": 0}
-            result["price"] = 0
+            result["price_range"] = {"min": None, "max": None}
+            result["price"] = None
         
+        # Log final dos preços extraídos
         print(f"DEBUGGING: Dados completos extraídos para {base_name}")
+        print(f"DEBUGGING: Resumo dos preços extraídos:")
+        print(f"DEBUGGING:   Normal - FN: {result['prices']['normal']['factory_new']}, MW: {result['prices']['normal']['minimal_wear']}, FT: {result['prices']['normal']['field_tested']}, WW: {result['prices']['normal']['well_worn']}, BS: {result['prices']['normal']['battle_scarred']}")
+        print(f"DEBUGGING:   StatTrak - FN: {result['prices']['stattrak']['factory_new']}, MW: {result['prices']['stattrak']['minimal_wear']}, FT: {result['prices']['stattrak']['field_tested']}, WW: {result['prices']['stattrak']['well_worn']}, BS: {result['prices']['stattrak']['battle_scarred']}")
+        print(f"DEBUGGING: Preço calculado padrão: {result.get('price', 0)}")
         return result
         
     except Exception as e:
@@ -1057,6 +1253,10 @@ def get_item_price(market_hash_name: str, currency: int = None, appid: int = Non
         extracted_price = detailed_data.get("price", 0)
         is_stattrak = "StatTrak" in market_hash_name or "stattrak" in market_hash_name.lower()
         
+        print(f"DEBUGGING: Preço inicial de detailed_data: {extracted_price}")
+        print(f"DEBUGGING: Preços extraídos - Normal: {detailed_data.get('prices', {}).get('normal')}")
+        print(f"DEBUGGING: Preços extraídos - StatTrak: {detailed_data.get('prices', {}).get('stattrak')}")
+        
         # Tentar extrair wear condition do nome
         wear_condition = None
         wear_key_map = {
@@ -1070,20 +1270,86 @@ def get_item_price(market_hash_name: str, currency: int = None, appid: int = Non
         for wear_name, wear_key in wear_key_map.items():
             if wear_name.lower() in market_hash_name.lower():
                 wear_condition = wear_key
+                print(f"DEBUGGING: Wear condition encontrada no nome: {wear_condition}")
                 break
         
         # Se encontrou wear condition específica, usar esse preço
         if wear_condition and detailed_data.get("prices"):
             if is_stattrak and detailed_data["prices"]["stattrak"].get(wear_condition):
                 extracted_price = detailed_data["prices"]["stattrak"][wear_condition]
+                print(f"DEBUGGING: Usando preço StatTrak {wear_condition}: {extracted_price}")
             elif detailed_data["prices"]["normal"].get(wear_condition):
                 extracted_price = detailed_data["prices"]["normal"][wear_condition]
+                print(f"DEBUGGING: Usando preço Normal {wear_condition}: {extracted_price}")
         
-        # Processar o preço obtido
-        processed_price = process_scraped_price(market_hash_name, extracted_price)
+        # Se ainda não temos preço válido, tentar usar Field-Tested como padrão
+        if (extracted_price is None or extracted_price <= 0) and detailed_data.get("prices"):
+            if detailed_data["prices"]["normal"].get("field_tested") is not None:
+                extracted_price = detailed_data["prices"]["normal"]["field_tested"]
+                print(f"DEBUGGING: Usando Field-Tested como padrão: {extracted_price}")
+            elif detailed_data["prices"]["normal"].get("minimal_wear") is not None:
+                extracted_price = detailed_data["prices"]["normal"]["minimal_wear"]
+                print(f"DEBUGGING: Usando Minimal Wear como padrão: {extracted_price}")
+            elif detailed_data.get("price") is not None and detailed_data.get("price", 0) > 0:
+                extracted_price = detailed_data["price"]
+                print(f"DEBUGGING: Usando preço calculado: {extracted_price}")
         
-        if processed_price <= 0:
-            raise Exception(f"O processamento resultou em um preço inválido para {market_hash_name}")
+        print(f"DEBUGGING: Preço final antes do processamento: {extracted_price}")
+        
+        # Se ainda não temos preço válido, tentar pegar qualquer preço disponível
+        if extracted_price is None or extracted_price <= 0:
+            all_prices = []
+            if detailed_data.get("prices"):
+                for wear_type in ["normal", "stattrak"]:
+                    for wear_key, price in detailed_data["prices"][wear_type].items():
+                        if price is not None and isinstance(price, (int, float)) and price > 0:
+                            all_prices.append(price)
+            
+            if all_prices:
+                extracted_price = min(all_prices)  # Usar o menor preço disponível
+                print(f"DEBUGGING: Usando menor preço disponível: {extracted_price}")
+            else:
+                # Se realmente não há preços, usar None mas ainda retornar os dados
+                print(f"DEBUGGING: Nenhum preço válido encontrado, mas retornando dados completos")
+                extracted_price = None
+        
+        # Processar o preço obtido (se não for None)
+        if extracted_price is not None and extracted_price > 0:
+            processed_price = process_scraped_price(market_hash_name, extracted_price)
+            print(f"DEBUGGING: Preço após processamento: {processed_price}")
+        else:
+            processed_price = None
+            print(f"DEBUGGING: Preço é None ou inválido, usando None")
+        
+        # Se não temos preço processado válido mas temos dados detalhados, ainda retornar os dados
+        if processed_price is None or processed_price <= 0:
+            # Verificar se temos pelo menos alguns preços nos dados detalhados
+            has_any_price = False
+            if detailed_data.get("prices"):
+                for wear_type in ["normal", "stattrak"]:
+                    for price in detailed_data["prices"][wear_type].values():
+                        if price is not None and isinstance(price, (int, float)) and price > 0:
+                            has_any_price = True
+                            break
+                    if has_any_price:
+                        break
+            
+            if not has_any_price:
+                raise Exception(f"Nenhum preço válido foi encontrado para {market_hash_name}. O item pode não ter dados de preço disponíveis no CSGOSkins.gg.")
+            else:
+                # Temos preços mas o processamento falhou, usar o primeiro preço válido encontrado
+                for wear_type in ["normal", "stattrak"]:
+                    for price in detailed_data["prices"][wear_type].values():
+                        if price is not None and isinstance(price, (int, float)) and price > 0:
+                            processed_price = price
+                            print(f"DEBUGGING: Usando primeiro preço válido encontrado: {processed_price}")
+                            break
+                    if processed_price and processed_price > 0:
+                        break
+                
+                # Se ainda não temos preço válido, lançar erro
+                if processed_price is None or processed_price <= 0:
+                    raise Exception(f"Nenhum preço válido foi encontrado para {market_hash_name}.")
         
         # Registrar que o scraping foi feito
         update_last_scrape_time(market_hash_name, currency, appid)
