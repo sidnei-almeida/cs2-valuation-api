@@ -171,16 +171,16 @@ async def get_specific_price(
         return None
 
 
-async def analyze_inventory_items(items: List[dict], currency: str = "BRL") -> Dict:
+async def analyze_inventory_items(items: List[dict]) -> Dict:
     """
-    Analisa lista de itens e retorna preços específicos.
+    Analisa lista de itens e retorna preços específicos em USD.
+    A conversão para outras moedas deve ser feita no frontend.
     
     Args:
         items: Lista de dicionários com informações dos itens
-        currency: Moeda desejada (BRL, USD, EUR)
     
     Returns:
-        dict: Resultado da análise com preços
+        dict: Resultado da análise com preços em USD
     """
     results = []
     total_usd = 0.0
@@ -197,19 +197,10 @@ async def analyze_inventory_items(items: List[dict], currency: str = "BRL") -> D
             item_total_usd = price_usd * item.get('quantity', 1)
             total_usd += item_total_usd
             
-            # Converter para BRL se necessário
-            price_brl = None
-            total_brl = None
-            if currency == "BRL":
-                price_brl = price_usd * EXCHANGE_RATE_USD_TO_BRL * (1 + STEAM_TAX)
-                total_brl = price_brl * item.get('quantity', 1)
-            
             results.append({
                 **item,
                 'price_usd': price_usd,
-                'price_brl': price_brl,
                 'total_usd': item_total_usd,
-                'total_brl': total_brl,
                 'source': 'Steam Market',
                 'last_updated': datetime.now().isoformat()
             })
@@ -218,21 +209,15 @@ async def analyze_inventory_items(items: List[dict], currency: str = "BRL") -> D
             results.append({
                 **item,
                 'price_usd': 0.0,
-                'price_brl': 0.0,
                 'total_usd': 0.0,
-                'total_brl': 0.0,
                 'error': 'Price not found'
             })
-    
-    # Calcular total em BRL
-    total_brl = total_usd * EXCHANGE_RATE_USD_TO_BRL * (1 + STEAM_TAX) if currency == "BRL" else None
     
     return {
         'total_items': len(results),
         'total_value_usd': total_usd,
-        'total_value_brl': total_brl,
         'items': results,
-        'currency': currency,
+        'currency': 'USD',
         'processed_at': datetime.now().isoformat()
     }
 

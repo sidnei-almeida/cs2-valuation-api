@@ -1,0 +1,642 @@
+================================================================================
+GUIA DE INTEGRAÇÃO - ENDPOINTS DE BUSCA DE PREÇOS CS2
+================================================================================
+
+Este documento descreve os novos endpoints criados na API para busca de preços
+específicos de skins CS2 considerando wear (condição) e StatTrak.
+
+Data de criação: 2025-01-XX
+Versão da API: 1.0.0
+
+================================================================================
+1. VISÃO GERAL
+================================================================================
+
+A API agora oferece endpoints focados exclusivamente em buscar preços de skins,
+sem funcionalidades de autenticação ou busca de inventário da Steam.
+
+Os novos endpoints permitem:
+- Buscar preços específicos por wear (Factory New, Minimal Wear, etc.)
+- Buscar preços considerando StatTrak ou versão normal
+- Analisar múltiplos itens em uma única requisição (batch)
+- Obter preços já convertidos em BRL (com taxa da Steam aplicada)
+
+================================================================================
+2. ENDPOINTS DISPONÍVEIS
+================================================================================
+
+2.1. GET /api/inventory/item-price
+-----------------------------------
+
+Busca o preço específico de uma skin considerando wear e StatTrak.
+
+URL Base:
+  https://sua-api.onrender.com/api/inventory/item-price
+
+Parâmetros (Query String):
+  - market_hash_name (string, obrigatório)
+    Nome base da skin sem wear condition
+    Exemplo: "AK-47 | Redline"
+  
+  - exterior (string, obrigatório)
+    Condição/Wear do item. Valores aceitos:
+    - "Factory New"
+    - "Minimal Wear"
+    - "Field-Tested"
+    - "Well-Worn"
+    - "Battle-Scarred"
+  
+  - stattrack (boolean, opcional, default: false)
+    true = Item é StatTrak™
+    false = Item normal
+  
+Exemplo de Requisição:
+  GET /api/inventory/item-price?market_hash_name=AK-47%20%7C%20Redline&exterior=Field-Tested&stattrack=false
+
+Resposta de Sucesso (200 OK):
+{
+  "market_hash_name": "AK-47 | Redline",
+  "exterior": "Field-Tested",
+  "stattrack": false,
+  "price_usd": 32.10,
+  "price_brl": null,
+  "currency": "USD",
+  "source": "Steam Market",
+  "last_updated": "2025-01-XXT12:00:00"
+}
+
+IMPORTANTE: A API sempre retorna preços em USD. A conversão para outras moedas
+deve ser feita no frontend usando a taxa de câmbio atual.
+
+Resposta de Erro (404 Not Found):
+{
+  "detail": "Preço não encontrado para AK-47 | Redline (Field-Tested)"
+}
+
+Exemplo JavaScript:
+  const response = await fetch(
+    `${API_BASE_URL}/api/inventory/item-price?` +
+    `market_hash_name=${encodeURIComponent('AK-47 | Redline')}&` +
+    `exterior=Field-Tested&` +
+    `stattrack=false`
+  );
+  
+  const data = await response.json();
+  
+  // Converter para BRL no frontend
+  const exchangeRate = 5.00; // Taxa de câmbio atual
+  const steamTax = 0.15; // 15% de taxa da Steam
+  const priceBRL = data.price_usd * exchangeRate * (1 + steamTax);
+  
+  console.log(`Preço USD: $${data.price_usd.toFixed(2)}`);
+  console.log(`Preço BRL: R$ ${priceBRL.toFixed(2)}`);
+
+
+2.2. POST /api/inventory/analyze-items
+--------------------------------------
+
+Analisa uma lista de itens e retorna os preços específicos de cada um.
+Ideal para processar inventários completos em uma única requisição.
+
+URL Base:
+  https://sua-api.onrender.com/api/inventory/analyze-items
+
+Método: POST
+Content-Type: application/json
+
+Body (JSON):
+{
+  "items": [
+    {
+      "name": "AK-47 | Redline (Field-Tested)",
+      "market_hash_name": "AK-47 | Redline",
+      "exterior": "Field-Tested",
+      "stattrack": false,
+      "quantity": 1,
+      "icon_url": "https://...",
+      "assetid": "1234567890",
+      "rarity": "Classified",
+      "category": "Rifle"
+    },
+    {
+      "name": "AWP | Dragon Lore (Factory New)",
+      "market_hash_name": "AWP | Dragon Lore",
+      "exterior": "Factory New",
+      "stattrack": true,
+      "quantity": 1,
+      "icon_url": "https://...",
+      "assetid": "0987654321",
+      "rarity": "Covert",
+      "category": "Sniper Rifle"
+    }
+  ],
+  "currency": "BRL"
+}
+
+Campos do Item:
+  - name (string, obrigatório)
+    Nome completo do item incluindo wear
+    Exemplo: "AK-47 | Redline (Field-Tested)"
+  
+  - market_hash_name (string, obrigatório)
+    Nome base da skin sem wear condition
+    Exemplo: "AK-47 | Redline"
+  
+  - exterior (string, obrigatório)
+    Condição do item (Factory New, Minimal Wear, etc.)
+  
+  - stattrack (boolean, obrigatório)
+    true se for StatTrak, false se for normal
+  
+  - quantity (integer, opcional, default: 1)
+    Quantidade do item (para calcular total)
+  
+  - icon_url (string, opcional)
+    URL da imagem do item
+  
+  - assetid (string, opcional)
+    ID do asset na Steam
+  
+  - rarity (string, opcional)
+    Raridade do item (Classified, Covert, etc.)
+  
+  - category (string, opcional)
+    Categoria do item (Rifle, Pistol, etc.)
+
+NOTA: O campo currency foi removido do request. A API sempre retorna preços em USD.
+A conversão para outras moedas deve ser feita no frontend.
+
+Resposta de Sucesso (200 OK):
+{
+  "total_items": 2,
+  "total_value_usd": 12532.10,
+  "items": [
+    {
+      "name": "AK-47 | Redline (Field-Tested)",
+      "market_hash_name": "AK-47 | Redline",
+      "exterior": "Field-Tested",
+      "stattrack": false,
+      "quantity": 1,
+      "price_usd": 32.10,
+      "total_usd": 32.10,
+      "icon_url": "https://...",
+      "assetid": "1234567890",
+      "rarity": "Classified",
+      "category": "Rifle",
+      "source": "Steam Market",
+      "last_updated": "2025-01-XXT12:00:00"
+    },
+    {
+      "name": "AWP | Dragon Lore (Factory New)",
+      "market_hash_name": "AWP | Dragon Lore",
+      "exterior": "Factory New",
+      "stattrack": true,
+      "quantity": 1,
+      "price_usd": 25000.00,
+      "total_usd": 25000.00,
+      "icon_url": "https://...",
+      "assetid": "0987654321",
+      "rarity": "Covert",
+      "category": "Sniper Rifle",
+      "source": "Steam Market",
+      "last_updated": "2025-01-XXT12:00:00"
+    }
+  ],
+  "currency": "USD",
+  "processed_at": "2025-01-XXT12:00:00"
+}
+
+Campos da Resposta:
+  - total_items: Número total de itens processados
+  - total_value_usd: Valor total em USD
+  - items: Array com os itens processados
+  - currency: Sempre "USD"
+  - processed_at: Timestamp do processamento
+
+Para cada item na resposta:
+  - price_usd: Preço unitário em USD
+  - total_usd: Preço total em USD (price_usd * quantity)
+  - error: Presente apenas se o preço não foi encontrado
+
+IMPORTANTE: A conversão para BRL deve ser feita no frontend usando:
+  price_brl = price_usd * exchange_rate * (1 + steam_tax)
+  Onde exchange_rate é a taxa de câmbio atual e steam_tax é 0.15 (15%)
+
+Exemplo JavaScript:
+  const inventoryItems = [
+    {
+      name: "AK-47 | Redline (Field-Tested)",
+      market_hash_name: "AK-47 | Redline",
+      exterior: "Field-Tested",
+      stattrack: false,
+      quantity: 1,
+      rarity: "Classified",
+      category: "Rifle"
+    }
+  ];
+  
+  const response = await fetch(
+    `${API_BASE_URL}/api/inventory/analyze-items`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        items: inventoryItems
+      })
+    }
+  );
+  
+  const analysis = await response.json();
+  
+  // Converter para BRL no frontend
+  const exchangeRate = 5.00; // Obter de API de câmbio
+  const steamTax = 0.15;
+  const totalBRL = analysis.total_value_usd * exchangeRate * (1 + steamTax);
+  
+  console.log(`Valor total USD: $${analysis.total_value_usd.toFixed(2)}`);
+  console.log(`Valor total BRL: R$ ${totalBRL.toFixed(2)}`);
+
+
+================================================================================
+3. CONVERSÃO DE MOEDA
+================================================================================
+
+A API sempre retorna preços em USD. A conversão para outras moedas deve ser
+feita no frontend para maior flexibilidade e controle sobre a taxa de câmbio.
+
+Fórmula para conversão no frontend:
+  price_brl = price_usd * exchange_rate * (1 + steam_tax)
+
+Onde:
+  - exchange_rate: Taxa de câmbio atual USD → BRL (obter de API de câmbio)
+  - steam_tax: 0.15 (15% de taxa da Steam)
+
+Exemplo:
+  Preço USD: $32.10
+  Taxa de câmbio: 5.00
+  Preço BRL: $32.10 * 5.00 * 1.15 = R$ 184.58
+
+Vantagens de fazer conversão no frontend:
+  - Taxa de câmbio sempre atualizada
+  - Controle sobre quando atualizar a taxa
+  - Suporte a múltiplas moedas sem mudanças na API
+  - Melhor performance (sem processamento no backend)
+
+
+================================================================================
+4. TRATAMENTO DE ERROS
+================================================================================
+
+4.1. Item não encontrado
+-------------------------
+Status: 404 Not Found
+
+Resposta:
+{
+  "detail": "Preço não encontrado para [market_hash_name] ([exterior])"
+}
+
+Ação recomendada:
+  - Exibir mensagem amigável ao usuário
+  - Marcar o item como "Preço não disponível"
+  - Continuar processando outros itens (no caso de batch)
+
+4.2. Parâmetros inválidos
+--------------------------
+Status: 422 Unprocessable Entity
+
+Resposta:
+{
+  "detail": [
+    {
+      "loc": ["query", "exterior"],
+      "msg": "field required",
+      "type": "value_error.missing"
+    }
+  ]
+}
+
+Ação recomendada:
+  - Validar parâmetros antes de enviar
+  - Exibir mensagem de erro específica
+
+4.3. Erro interno do servidor
+------------------------------
+Status: 500 Internal Server Error
+
+Resposta:
+{
+  "detail": "Internal server error"
+}
+
+Ação recomendada:
+  - Tentar novamente após alguns segundos
+  - Exibir mensagem genérica de erro
+  - Logar o erro para análise
+
+
+================================================================================
+5. EXEMPLOS DE USO COMPLETO
+================================================================================
+
+5.1. Buscar preço de um item individual
+----------------------------------------
+
+// Função para buscar preço de um item
+async function getItemPrice(marketHashName, exterior, isStatTrak = false) {
+  try {
+    const params = new URLSearchParams({
+      market_hash_name: marketHashName,
+      exterior: exterior,
+      stattrack: isStatTrak.toString()
+    });
+    
+    const response = await fetch(
+      `${API_BASE_URL}/api/inventory/item-price?${params}`
+    );
+    
+    if (!response.ok) {
+      if (response.status === 404) {
+        return { error: 'Preço não encontrado' };
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Erro ao buscar preço:', error);
+    return { error: 'Erro ao conectar com a API' };
+  }
+}
+
+// Uso
+const price = await getItemPrice('AK-47 | Redline', 'Field-Tested', false);
+if (price.error) {
+  console.log(price.error);
+} else {
+  // Converter para BRL no frontend
+  const exchangeRate = 5.00; // Obter de API de câmbio
+  const steamTax = 0.15;
+  const priceBRL = price.price_usd * exchangeRate * (1 + steamTax);
+  
+  console.log(`Preço USD: $${price.price_usd.toFixed(2)}`);
+  console.log(`Preço BRL: R$ ${priceBRL.toFixed(2)}`);
+}
+
+
+5.2. Analisar inventário completo
+----------------------------------
+
+// Função para analisar inventário
+async function analyzeInventory(steamInventory) {
+  // Converter inventário da Steam para formato da API
+  const items = steamInventory.map(item => ({
+    name: item.name,
+    market_hash_name: extractMarketHashName(item.name),
+    exterior: extractExterior(item.name),
+    stattrack: item.name.includes('StatTrak'),
+    quantity: item.quantity || 1,
+    icon_url: item.icon_url,
+    assetid: item.assetid,
+    rarity: item.rarity,
+    category: item.category
+  }));
+  
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/inventory/analyze-items`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          items: items
+        })
+      }
+    );
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Erro ao analisar inventário:', error);
+    return null;
+  }
+}
+
+// Funções auxiliares para extrair informações do nome
+function extractMarketHashName(fullName) {
+  // Remove wear condition e StatTrak do nome
+  return fullName
+    .replace(/StatTrak™?\s*/gi, '')
+    .replace(/\s*\([^)]+\)$/, '')
+    .trim();
+}
+
+function extractExterior(fullName) {
+  // Extrai a condição do nome
+  const match = fullName.match(/\(([^)]+)\)$/);
+  if (match) {
+    return match[1];
+  }
+  return 'Field-Tested'; // Padrão se não encontrar
+}
+
+// Uso
+const steamInventory = [
+  {
+    name: "AK-47 | Redline (Field-Tested)",
+    quantity: 1,
+    icon_url: "https://...",
+    assetid: "1234567890"
+  }
+];
+
+const analysis = await analyzeInventory(steamInventory);
+if (analysis) {
+  // Converter para BRL no frontend
+  const exchangeRate = 5.00; // Obter de API de câmbio
+  const steamTax = 0.15;
+  const totalBRL = analysis.total_value_usd * exchangeRate * (1 + steamTax);
+  
+  console.log(`Total USD: $${analysis.total_value_usd.toFixed(2)}`);
+  console.log(`Total BRL: R$ ${totalBRL.toFixed(2)}`);
+  
+  analysis.items.forEach(item => {
+    if (!item.error) {
+      const itemBRL = item.price_usd * exchangeRate * (1 + steamTax);
+      console.log(`${item.name}: $${item.price_usd.toFixed(2)} USD / R$ ${itemBRL.toFixed(2)} BRL`);
+    }
+  });
+}
+
+
+5.3. Processar inventário com tratamento de erros
+---------------------------------------------------
+
+async function processInventoryWithErrorHandling(items) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/inventory/analyze-items`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items })
+    }
+  );
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Erro ao processar inventário');
+  }
+  
+  const result = await response.json();
+  
+  // Separar itens com e sem preço
+  const itemsWithPrice = result.items.filter(item => !item.error);
+  const itemsWithoutPrice = result.items.filter(item => item.error);
+  
+  return {
+    ...result,
+    itemsWithPrice,
+    itemsWithoutPrice,
+    successCount: itemsWithPrice.length,
+    errorCount: itemsWithoutPrice.length
+  };
+}
+
+
+================================================================================
+6. MELHORES PRÁTICAS
+================================================================================
+
+6.1. Cache de Preços
+--------------------
+- Cachear preços localmente por alguns minutos
+- Evitar múltiplas requisições para o mesmo item
+- Invalidar cache quando necessário
+
+6.2. Requisições em Lote
+-------------------------
+- Sempre usar POST /api/inventory/analyze-items para múltiplos itens
+- Evitar fazer múltiplas requisições GET individuais
+- Processar até 100 itens por requisição (recomendado)
+
+6.3. Tratamento de Erros
+-------------------------
+- Sempre tratar erros de rede
+- Validar dados antes de enviar
+- Exibir mensagens amigáveis ao usuário
+- Logar erros para análise
+
+6.4. Performance
+----------------
+- Mostrar loading durante o processamento
+- Processar itens em chunks se o inventário for muito grande
+- Usar async/await para não bloquear a UI
+
+6.5. Validação de Dados
+------------------------
+- Validar que market_hash_name não está vazio
+- Validar que exterior é um valor válido
+- Validar que stattrack é boolean
+- Validar que quantity é um número positivo
+
+
+================================================================================
+7. ESTRUTURA DE DADOS DO INVENTÁRIO STEAM
+================================================================================
+
+Quando você obtém o inventário da Steam, cada item tem esta estrutura:
+
+{
+  "name": "AK-47 | Redline (Field-Tested)",
+  "market_hash_name": "AK-47 | Redline",  // Pode precisar extrair
+  "exterior": "Field-Tested",              // Pode precisar extrair
+  "stattrack": false,                      // Verificar se nome contém "StatTrak"
+  "icon_url": "https://steamcommunity-a.akamaihd.net/economy/image/...",
+  "assetid": "1234567890",
+  "rarity": "Classified",
+  "category": "Rifle"
+}
+
+NOTA: Alguns campos podem precisar ser extraídos do nome do item.
+      Use as funções auxiliares do exemplo 5.2.
+
+
+================================================================================
+8. URL DA API
+================================================================================
+
+Desenvolvimento:
+  http://localhost:8000
+
+Produção:
+  https://sua-api-no-render.onrender.com
+  OU
+  https://cotacaocs2-production-56f0.up.railway.app
+
+IMPORTANTE: Atualize a URL base no frontend antes de fazer deploy.
+
+
+================================================================================
+9. CORS
+================================================================================
+
+A API está configurada para aceitar requisições de qualquer origem.
+Não é necessário configurar headers CORS especiais no frontend.
+
+
+================================================================================
+10. LIMITES E RATE LIMITING
+================================================================================
+
+Atualmente não há limites rígidos, mas recomenda-se:
+- Máximo de 100 itens por requisição batch
+- Aguardar pelo menos 1 segundo entre requisições
+- Cachear resultados quando possível
+
+Se receber erro 429 (Too Many Requests):
+- Aguardar alguns segundos antes de tentar novamente
+- Reduzir frequência de requisições
+
+
+================================================================================
+11. SUPORTE E CONTATO
+================================================================================
+
+Para dúvidas ou problemas:
+- Verificar logs da API
+- Verificar documentação interativa em /docs (Swagger UI)
+- Contatar equipe de backend
+
+Documentação interativa:
+  https://sua-api.onrender.com/docs
+
+
+================================================================================
+12. CHANGELOG
+================================================================================
+
+Versão 1.0.0 (2025-01-XX)
+- Criação dos endpoints GET /api/inventory/item-price
+- Criação do endpoint POST /api/inventory/analyze-items
+- Suporte para busca por wear específico
+- Suporte para StatTrak
+- Conversão automática USD → BRL
+- Remoção de endpoints relacionados a autenticação Steam
+- Foco exclusivo em busca de preços
+
+
+================================================================================
+FIM DO GUIA
+================================================================================
+
+Este guia contém todas as informações necessárias para integrar os novos
+endpoints no frontend. Para exemplos adicionais, consulte a documentação
+interativa da API em /docs.
+

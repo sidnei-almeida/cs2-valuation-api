@@ -19,12 +19,10 @@ class ItemPriceRequest(BaseModel):
     market_hash_name: str
     exterior: str
     stattrack: bool = False
-    currency: str = "USD"
 
 
 class InventoryAnalysisRequest(BaseModel):
     items: List[InventoryItem]
-    currency: str = "BRL"
 
 
 class ItemPriceResponse(BaseModel):
@@ -42,8 +40,7 @@ class ItemPriceResponse(BaseModel):
 class InventoryAnalysisResponse(BaseModel):
     total_items: int
     total_value_usd: float
-    total_value_brl: float
     items: List[dict]
-    currency: str
+    currency: str  # Sempre "USD"
     processed_at: str
 

@@ -150,11 +150,11 @@ async def root():
 async def get_item_price_endpoint(
     market_hash_name: str = Query(..., description="Nome base da skin"),
     exterior: str = Query(..., description="Condição do item (Factory New, Minimal Wear, Field-Tested, Well-Worn, Battle-Scarred)"),
-    stattrack: bool = Query(False, description="Se é StatTrak"),
-    currency: str = Query("USD", description="Moeda desejada (USD, BRL, EUR)")
+    stattrack: bool = Query(False, description="Se é StatTrak")
 ):
     """
-    Busca preço específico de uma skin considerando wear e StatTrak
+    Busca preço específico de uma skin considerando wear e StatTrak.
+    Retorna preço em USD. A conversão para outras moedas deve ser feita no frontend.
     """
     price_usd = await get_specific_price(market_hash_name, exterior, stattrack)
     
@@ -164,19 +164,13 @@ async def get_item_price_endpoint(
             detail=f"Preço não encontrado para {market_hash_name} ({exterior})"
         )
     
-    # Converter para BRL se necessário
-    price_brl = None
-    if currency == "BRL":
-        from services.inventory_pricer import EXCHANGE_RATE_USD_TO_BRL, STEAM_TAX
-        price_brl = price_usd * EXCHANGE_RATE_USD_TO_BRL * (1 + STEAM_TAX)
-    
     return ItemPriceResponse(
         market_hash_name=market_hash_name,
         exterior=exterior,
         stattrack=stattrack,
         price_usd=price_usd,
-        price_brl=price_brl,
-        currency=currency,
+        price_brl=None,  # Conversão deve ser feita no frontend
+        currency="USD",
         source="Steam Market",
         last_updated=datetime.datetime.now().isoformat()
     )
@@ -185,11 +179,12 @@ async def get_item_price_endpoint(
 @app.post("/api/inventory/analyze-items", response_model=InventoryAnalysisResponse)
 async def analyze_items_endpoint(request: InventoryAnalysisRequest):
     """
-    Analisa lista de itens e retorna preços específicos
+    Analisa lista de itens e retorna preços específicos em USD.
+    A conversão para outras moedas deve ser feita no frontend.
     """
     # Converter modelos Pydantic para dicionários
     items_dict = [item.dict() for item in request.items]
-    result = await analyze_inventory_items(items_dict, request.currency)
+    result = await analyze_inventory_items(items_dict)
     return InventoryAnalysisResponse(**result)
 
 
