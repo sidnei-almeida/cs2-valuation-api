@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from typing import List, Dict, Any, Optional
 import uvicorn
 import os
@@ -32,13 +34,14 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:5500",   # Desenvolvimento local alternativo
     "http://localhost:3000",   # React local
     "http://localhost:8000",   # Porta do backend
+    "http://localhost:8080",   # Frontend local (VS Code Live Server)
+    "http://127.0.0.1:8080",   # Frontend local alternativo
     "http://localhost",        # Qualquer porta em localhost
     "http://127.0.0.1",        # Qualquer porta em localhost
     "https://elite-skins-2025.github.io",  # GitHub Pages
+    "https://sidnei-almeida.github.io",  # GitHub Pages alternativo
     "file://",  # Para suportar arquivos abertos localmente
-    # Adicione aqui a URL específica do seu serviço Render quando souber
-    # Exemplo: "https://cs2-valuation-api.onrender.com"
-    "*"  # Último recurso - permitir qualquer origem em desenvolvimento
+    "*"  # Permitir qualquer origem (útil para desenvolvimento e produção)
 ]
 
 # Configurar middleware CORS com opções específicas
@@ -109,6 +112,49 @@ class CustomCORSMiddleware(BaseHTTPMiddleware):
 # Add custom middleware after FastAPI middleware
 app.add_middleware(CustomCORSMiddleware)
 
+# Exception handler global para garantir CORS em todos os erros
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Garante que erros HTTP também tenham headers CORS"""
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
+
+@app.exception_handler(StarletteHTTPException)
+async def starlette_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Handler para exceções Starlette (incluindo 404) com CORS"""
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail if hasattr(exc, 'detail') else f"Endpoint não encontrado: {request.url.path}"}
+    )
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Garante que erros gerais também tenham headers CORS"""
+    import traceback
+    print(f"Erro não tratado: {exc}")
+    traceback.print_exc()
+    response = JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {str(exc)}"}
+    )
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
+
 # List of endpoints for the home page
 AVAILABLE_ENDPOINTS = [
     "/api/inventory/item-price",
@@ -150,12 +196,21 @@ async def root():
 async def get_item_price_endpoint(
     market_hash_name: str = Query(..., description="Nome base da skin"),
     exterior: str = Query(..., description="Condição do item (Factory New, Minimal Wear, Field-Tested, Well-Worn, Battle-Scarred)"),
-    stattrack: bool = Query(False, description="Se é StatTrak")
+    stattrack: bool = Query(False, description="Se é StatTrak"),
+    response: Response = None,
+    request: Request = None
 ):
     """
     Busca preço específico de uma skin considerando wear e StatTrak.
     Retorna preço em USD. A conversão para outras moedas deve ser feita no frontend.
     """
+    # Adicionar headers CORS manualmente (o middleware já adiciona, mas garantimos aqui também)
+    if response:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+    
     price_usd = await get_specific_price(market_hash_name, exterior, stattrack)
     
     if price_usd is None:
@@ -177,15 +232,38 @@ async def get_item_price_endpoint(
 
 
 @app.post("/api/inventory/analyze-items", response_model=InventoryAnalysisResponse)
-async def analyze_items_endpoint(request: InventoryAnalysisRequest):
+async def analyze_items_endpoint(
+    request_body: InventoryAnalysisRequest,
+    response: Response = None,
+    request: Request = None
+):
     """
     Analisa lista de itens e retorna preços específicos em USD.
     A conversão para outras moedas deve ser feita no frontend.
     """
-    # Converter modelos Pydantic para dicionários
-    items_dict = [item.dict() for item in request.items]
-    result = await analyze_inventory_items(items_dict)
-    return InventoryAnalysisResponse(**result)
+    # Adicionar headers CORS manualmente (o middleware já adiciona, mas garantimos aqui também)
+    if response:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+    
+    try:
+        # Converter modelos Pydantic para dicionários
+        items_dict = [item.dict() for item in request_body.items]
+        result = await analyze_inventory_items(items_dict)
+        return InventoryAnalysisResponse(**result)
+    except Exception as e:
+        # Garantir que erros também tenham headers CORS
+        if response:
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "*"
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao processar inventário: {str(e)}"
+        )
 
 
 @app.get("/case/{case_name}")
