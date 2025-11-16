@@ -42,3 +42,4 @@ data/skins_cache.db
 # IDE
 .idea/
 .vscode/ 
+API_INTEGRATION_GUIDE.txt
