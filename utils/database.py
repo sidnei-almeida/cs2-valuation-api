@@ -169,6 +169,37 @@ def init_db():
             ON skin_prices(market_hash_name)
             ''')
             
+            # Table to store price history for each skin
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS price_history (
+                id SERIAL PRIMARY KEY,
+                market_hash_name TEXT NOT NULL,
+                date DATE NOT NULL,
+                price_usd REAL NOT NULL,
+                price_cents INTEGER NOT NULL,
+                volume INTEGER,
+                listings INTEGER,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(market_hash_name, date)
+            )
+            ''')
+            
+            # Indexes for price_history table
+            cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_price_history_market_hash_name
+            ON price_history(market_hash_name)
+            ''')
+            
+            cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_price_history_date
+            ON price_history(date)
+            ''')
+            
+            cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_price_history_market_hash_name_date
+            ON price_history(market_hash_name, date DESC)
+            ''')
+            
             conn.commit()
             conn.close()
             
@@ -276,6 +307,8 @@ def save_skin_price(market_hash_name: str, price: float, currency: int, app_id: 
             'image_url': image_url
         }
     
+    print(f"💾 Tentando salvar no banco: {market_hash_name} | DB_AVAILABLE={DB_AVAILABLE} | DATABASE_URL={'SIM' if DATABASE_URL else 'NÃO'}")
+    
     # Se o banco estiver disponível, tenta salvar nele também
     if DB_AVAILABLE:
         try:
@@ -314,8 +347,11 @@ def save_skin_price(market_hash_name: str, price: float, currency: int, app_id: 
             
             conn.commit()
             conn.close()
+            print(f"✓ Dados salvos no banco: {market_hash_name} (preço: ${price:.2f})")
         except Exception as e:
-            print(f"Error saving price to database: {e}")
+            print(f"✗ ERRO ao salvar no banco de dados: {e}")
+            import traceback
+            traceback.print_exc()
             # Already in memory cache, so just log the error
 
 def get_outdated_skins(days: int = 7, limit: int = 100) -> List[Dict]:
@@ -557,4 +593,132 @@ def _get_stats_from_memory() -> Dict:
             'last_update': last_update.isoformat() if last_update else None,
             'database_type': 'Memory',
             'mode': 'FALLBACK'
-        } 
+        }
+
+
+def save_price_history(market_hash_name: str, price_history_data: Dict) -> bool:
+    """
+    Salva o histórico de preços de uma skin na tabela price_history.
+    
+    Args:
+        market_hash_name: Nome base da skin (sem wear condition)
+        price_history_data: Dicionário com estrutura do PriceHistory (entries, all_time_high, etc.)
+        
+    Returns:
+        True se salvou com sucesso, False caso contrário
+    """
+    if not price_history_data or not price_history_data.get("entries"):
+        print(f"⚠ Nenhum histórico para salvar para {market_hash_name}")
+        return False
+    
+    if not DB_AVAILABLE:
+        print(f"⚠ Banco não disponível, não salvando histórico para {market_hash_name}")
+        return False
+    
+    try:
+        conn = get_db_connection()
+        if not conn:
+            print(f"⚠ Não foi possível conectar ao banco para salvar histórico de {market_hash_name}")
+            return False
+        
+        cursor = conn.cursor()
+        entries = price_history_data.get("entries", [])
+        saved_count = 0
+        skipped_count = 0
+        
+        print(f"💾 Salvando {len(entries)} entradas de histórico para {market_hash_name}")
+        
+        for entry in entries:
+            try:
+                date_str = entry.get("date")
+                price_usd = entry.get("price_usd")
+                price_cents = entry.get("price_cents")
+                volume = entry.get("volume")
+                listings = entry.get("listings")
+                
+                if not date_str or price_usd is None:
+                    skipped_count += 1
+                    continue
+                
+                # Usar ON CONFLICT para evitar duplicatas (market_hash_name + date é UNIQUE)
+                cursor.execute('''
+                INSERT INTO price_history 
+                (market_hash_name, date, price_usd, price_cents, volume, listings)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (market_hash_name, date) 
+                DO UPDATE SET
+                    price_usd = EXCLUDED.price_usd,
+                    price_cents = EXCLUDED.price_cents,
+                    volume = EXCLUDED.volume,
+                    listings = EXCLUDED.listings
+                ''', (market_hash_name, date_str, price_usd, price_cents, volume, listings))
+                
+                saved_count += 1
+            except Exception as e:
+                print(f"⚠ Erro ao salvar entrada de histórico {entry.get('date')}: {e}")
+                skipped_count += 1
+                continue
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"✓ Histórico salvo: {saved_count} entradas para {market_hash_name} (puladas: {skipped_count})")
+        return True
+        
+    except Exception as e:
+        print(f"✗ ERRO ao salvar histórico de preços para {market_hash_name}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def get_price_history(market_hash_name: str, limit: int = 1000, start_date: str = None, end_date: str = None) -> List[Dict]:
+    """
+    Busca o histórico de preços de uma skin.
+    
+    Args:
+        market_hash_name: Nome base da skin
+        limit: Número máximo de registros a retornar
+        start_date: Data inicial (formato YYYY-MM-DD)
+        end_date: Data final (formato YYYY-MM-DD)
+        
+    Returns:
+        Lista de dicionários com o histórico de preços
+    """
+    if not DB_AVAILABLE:
+        return []
+    
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        query = '''
+        SELECT date, price_usd, price_cents, volume, listings
+        FROM price_history
+        WHERE market_hash_name = %s
+        '''
+        params = [market_hash_name]
+        
+        if start_date:
+            query += ' AND date >= %s'
+            params.append(start_date)
+        
+        if end_date:
+            query += ' AND date <= %s'
+            params.append(end_date)
+        
+        query += ' ORDER BY date DESC LIMIT %s'
+        params.append(limit)
+        
+        cursor.execute(query, params)
+        results = cursor.fetchall()
+        conn.close()
+        
+        return [dict(row) for row in results]
+        
+    except Exception as e:
+        print(f"Erro ao buscar histórico de preços: {e}")
+        return [] 

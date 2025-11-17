@@ -6,7 +6,8 @@ from datetime import datetime
 import time
 import re
 import asyncio
-from services.steam_market import get_item_detailed_data_via_csgostash, sleep_between_requests
+from services.steam_market import get_item_detailed_data_via_csgostash, sleep_between_requests, STEAM_MARKET_CURRENCY, STEAM_APPID
+from utils.database import save_skin_price, save_price_history
 
 # Taxa de câmbio USD para BRL (pode ser atualizada dinamicamente)
 EXCHANGE_RATE_USD_TO_BRL = 5.00  # Atualizar dinamicamente se necessário
@@ -202,6 +203,34 @@ async def get_specific_price(
         price_history = detailed_data.get("price_history")
         
         if price is None:
+            # Mesmo sem preço específico, salvar os dados no banco se tivermos detailed_data
+            # Isso permite que salvemos o histórico e outros dados mesmo quando o preço específico não existe
+            try:
+                base_name = detailed_data.get("market_hash_name", market_hash_name)
+                # Tentar usar um preço padrão do detailed_data se disponível
+                default_price = detailed_data.get("price")
+                
+                if default_price and default_price > 0:
+                    print(f"Salvando no banco de dados (sem preço específico): {base_name} (preço padrão: ${default_price:.2f})")
+                    save_skin_price(
+                        market_hash_name=base_name,
+                        price=float(default_price),
+                        currency=1,  # USD
+                        app_id=730,  # CS2
+                        detailed_data=detailed_data,  # Inclui todos os preços (sem histórico, que vai em tabela separada)
+                        image_url=detailed_data.get("image_url")
+                    )
+                    
+                    # Salvar histórico em tabela separada
+                    if price_history:
+                        save_price_history(base_name, price_history)
+                    
+                    print(f"Dados salvos no banco com sucesso (sem preço específico)!")
+            except Exception as e:
+                print(f"Erro ao salvar no banco de dados (sem preço específico): {e}")
+                import traceback
+                traceback.print_exc()
+            
             # Se include_image=True, sempre retornar a imagem se disponível
             if include_image:
                 image_url = detailed_data.get("image_url")
@@ -219,6 +248,37 @@ async def get_specific_price(
             return None
         
         print(f"Preço encontrado: ${price:.2f} USD para {market_hash_name} ({exterior}, StatTrak={stattrack})")
+        
+        # Salvar no banco de dados (usando o nome base da skin, não com wear condition)
+        # O detailed_data já contém todos os preços por wear e o histórico
+        try:
+            base_name = detailed_data.get("market_hash_name", market_hash_name)
+            # Usar o preço encontrado ou um preço padrão do detailed_data
+            price_to_save = float(price) if price else detailed_data.get("price", 0)
+            
+            if price_to_save > 0:
+                print(f"Salvando no banco de dados: {base_name} (preço: ${price_to_save:.2f})")
+                save_skin_price(
+                    market_hash_name=base_name,
+                    price=price_to_save,
+                    currency=1,  # USD
+                    app_id=730,  # CS2
+                    detailed_data=detailed_data,  # Inclui todos os preços (sem histórico, que vai em tabela separada)
+                    image_url=detailed_data.get("image_url")
+                )
+                
+                # Salvar histórico em tabela separada
+                if price_history:
+                    save_price_history(base_name, price_history)
+                
+                print(f"Dados salvos no banco com sucesso!")
+            else:
+                print(f"Preço inválido ({price_to_save}), não salvando no banco")
+        except Exception as e:
+            print(f"Erro ao salvar no banco de dados: {e}")
+            import traceback
+            traceback.print_exc()
+            # Continuar mesmo se falhar ao salvar
         
         # Se include_image=True, retornar dict com price, icon_url e histórico
         if include_image:
