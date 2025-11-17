@@ -214,23 +214,33 @@ async def get_item_price_endpoint(
     # Buscar preço com imagem
     price_data = await get_specific_price(market_hash_name, exterior, stattrack, include_image=True)
     
-    # Extrair preço e icon_url
+    # Extrair preço, icon_url e histórico
     if isinstance(price_data, dict):
         price_usd = price_data.get('price')
         icon_url = price_data.get('icon_url')
         not_possible = price_data.get('not_possible', False)
         message = price_data.get('message')
+        price_history = price_data.get('price_history')
     else:
         price_usd = price_data
         icon_url = None
         not_possible = False
         message = None
+        price_history = None
     
     # Se não encontrou preço, verificar se é "Not possible" ou erro real
     if price_usd is None:
         # Se temos dados (mesmo que seja dict com erro), retornar resposta com imagem se disponível
         if isinstance(price_data, dict):
             # Sempre retornar resposta com icon_url se disponível, mesmo em caso de erro
+            from models.inventory import PriceHistory
+            price_history_model = None
+            if price_history:
+                try:
+                    price_history_model = PriceHistory(**price_history)
+                except Exception as e:
+                    print(f"Erro ao criar modelo PriceHistory: {e}")
+            
             return ItemPriceResponse(
                 market_hash_name=market_hash_name,
                 exterior=exterior,
@@ -242,7 +252,8 @@ async def get_item_price_endpoint(
                 last_updated=datetime.datetime.now().isoformat(),
                 icon_url=icon_url,
                 not_possible=not_possible,
-                message=message or (f"Esta skin não existe em {exterior} {'StatTrak' if stattrack else 'Normal'}" if not_possible else f"Preço não encontrado para {market_hash_name} ({exterior})")
+                message=message or (f"Esta skin não existe em {exterior} {'StatTrak' if stattrack else 'Normal'}" if not_possible else f"Preço não encontrado para {market_hash_name} ({exterior})"),
+                price_history=price_history_model
             )
         else:
             # Se price_data é None, não conseguimos nem fazer scraping
@@ -250,6 +261,15 @@ async def get_item_price_endpoint(
                 status_code=404,
                 detail=f"Item não encontrado: {market_hash_name}"
             )
+    
+    # Criar modelo de histórico se disponível
+    from models.inventory import PriceHistory
+    price_history_model = None
+    if price_history:
+        try:
+            price_history_model = PriceHistory(**price_history)
+        except Exception as e:
+            print(f"Erro ao criar modelo PriceHistory: {e}")
     
     return ItemPriceResponse(
         market_hash_name=market_hash_name,
@@ -261,7 +281,8 @@ async def get_item_price_endpoint(
         source="Steam Market",
         last_updated=datetime.datetime.now().isoformat(),
         icon_url=icon_url,
-        not_possible=False
+        not_possible=False,
+        price_history=price_history_model
     )
 
 

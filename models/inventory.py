@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 
@@ -25,6 +25,24 @@ class InventoryAnalysisRequest(BaseModel):
     items: List[InventoryItem]
 
 
+class PriceHistoryEntry(BaseModel):
+    date: str
+    price_usd: float
+    price_cents: int
+    volume: Optional[int] = None
+    listings: Optional[int] = None
+
+
+class PriceHistory(BaseModel):
+    entries: List[PriceHistoryEntry]
+    all_time_high: Optional[float] = None
+    all_time_low: Optional[float] = None
+    current_price: Optional[float] = None
+    price_change_7d: Optional[float] = None
+    price_change_30d: Optional[float] = None
+    total_entries: int
+
+
 class ItemPriceResponse(BaseModel):
     market_hash_name: str
     exterior: str
@@ -37,6 +55,7 @@ class ItemPriceResponse(BaseModel):
     icon_url: Optional[str] = None
     not_possible: Optional[bool] = False  # True quando a skin não existe nessa condição
     message: Optional[str] = None  # Mensagem explicativa
+    price_history: Optional[PriceHistory] = None  # Histórico de preços
 
 
 class InventoryAnalysisResponse(BaseModel):

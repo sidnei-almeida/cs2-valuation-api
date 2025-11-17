@@ -198,39 +198,39 @@ async def get_specific_price(
             else:
                 print(f"Preço não encontrado para {market_hash_name} ({exterior}, StatTrak={stattrack})")
         
+        # Extrair histórico de preços se disponível
+        price_history = detailed_data.get("price_history")
+        
         if price is None:
             # Se include_image=True, sempre retornar a imagem se disponível
             if include_image:
                 image_url = detailed_data.get("image_url")
-                if is_not_possible:
-                    return {
-                        "price": None,
-                        "icon_url": image_url,
-                        "not_possible": True,
-                        "message": f"Esta skin não existe em {exterior} {'StatTrak' if stattrack else 'Normal'}"
-                    }
-                else:
-                    # Erro real - não encontrado, mas ainda retornar imagem se disponível
-                    if image_url:
-                        return {
-                            "price": None,
-                            "icon_url": image_url,
-                            "not_possible": False,
-                            "message": f"Preço não encontrado para {market_hash_name} ({exterior}, StatTrak={stattrack})"
-                        }
-                    return None
+                result_dict = {
+                    "price": None,
+                    "icon_url": image_url,
+                    "not_possible": is_not_possible,
+                    "message": f"Esta skin não existe em {exterior} {'StatTrak' if stattrack else 'Normal'}" if is_not_possible else f"Preço não encontrado para {market_hash_name} ({exterior}, StatTrak={stattrack})"
+                }
+                # Incluir histórico se disponível
+                if price_history:
+                    result_dict["price_history"] = price_history
+                return result_dict
             
             return None
         
         print(f"Preço encontrado: ${price:.2f} USD para {market_hash_name} ({exterior}, StatTrak={stattrack})")
         
-        # Se include_image=True, retornar dict com price e icon_url
+        # Se include_image=True, retornar dict com price, icon_url e histórico
         if include_image:
-            return {
+            result_dict = {
                 "price": float(price),
                 "icon_url": detailed_data.get("image_url"),
                 "not_possible": False
             }
+            # Incluir histórico se disponível
+            if price_history:
+                result_dict["price_history"] = price_history
+            return result_dict
         
         return float(price)
         

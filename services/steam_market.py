@@ -436,6 +436,171 @@ def get_item_price_via_scraping(market_hash_name: str, appid: int = STEAM_APPID,
     raise Exception(f"Não foi possível obter o preço para {market_hash_name}")
 
 
+def extract_price_history_from_html(html_text: str) -> Optional[List[List[Any]]]:
+    """
+    Extrai o histórico de preços do script JavaScript no HTML.
+    
+    Procura por: const priceHistory = [[...], ...]
+    
+    Args:
+        html_text: HTML completo da página
+        
+    Returns:
+        Lista de arrays com [data, preço_em_centavos, volume, ofertas] ou None
+    """
+    try:
+        # Procurar pelo script que contém priceHistory
+        # Padrão: const priceHistory = [[...], ...];
+        # Precisamos encontrar o início do array e contar os colchetes para encontrar o fim correto
+        
+        # Primeiro, encontrar a posição onde começa "const priceHistory = "
+        start_pattern = r'const\s+priceHistory\s*='
+        start_match = re.search(start_pattern, html_text, re.IGNORECASE)
+        
+        if not start_match:
+            print("DEBUGGING: priceHistory não encontrado no HTML")
+            return None
+        
+        # Encontrar o primeiro '[' após o '='
+        start_pos = start_match.end()
+        array_start = html_text.find('[', start_pos)
+        
+        if array_start == -1:
+            print("DEBUGGING: Array não encontrado após priceHistory =")
+            return None
+        
+        # Contar colchetes para encontrar o fim do array principal
+        bracket_count = 0
+        array_end = array_start
+        
+        for i in range(array_start, len(html_text)):
+            if html_text[i] == '[':
+                bracket_count += 1
+            elif html_text[i] == ']':
+                bracket_count -= 1
+                if bracket_count == 0:
+                    array_end = i + 1
+                    break
+        
+        if bracket_count != 0:
+            print("DEBUGGING: Array priceHistory não foi fechado corretamente")
+            return None
+        
+        # Extrair a string do array
+        array_string = html_text[array_start:array_end]
+        
+        # Converter string JavaScript para Python
+        # Usar ast.literal_eval para segurança
+        import ast
+        try:
+            # Limpar a string (remover comentários se houver)
+            # Converter para formato Python válido
+            price_history = ast.literal_eval(array_string)
+            
+            print(f"DEBUGGING: Histórico de preços extraído: {len(price_history)} entradas")
+            return price_history
+        except (ValueError, SyntaxError) as e:
+            print(f"DEBUGGING: Erro ao converter priceHistory com ast.literal_eval: {e}")
+            # Fallback: tentar com json.loads (pode funcionar se o formato for JSON válido)
+            try:
+                # Tentar converter diretamente
+                price_history = json.loads(array_string)
+                print(f"DEBUGGING: Histórico extraído via JSON: {len(price_history)} entradas")
+                return price_history
+            except Exception as json_error:
+                print(f"DEBUGGING: Erro ao converter priceHistory via JSON: {json_error}")
+                return None
+                
+    except Exception as e:
+        print(f"DEBUGGING: Erro ao extrair priceHistory: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def parse_price_history(price_history: List[List[Any]]) -> Optional[Dict]:
+    """
+    Converte o histórico de preços em formato estruturado.
+    
+    Args:
+        price_history: Lista de arrays [data, preço_centavos, volume, ofertas]
+        
+    Returns:
+        Dicionário com dados estruturados do histórico ou None
+    """
+    if not price_history:
+        return None
+    
+    try:
+        parsed_data = {
+            "entries": [],
+            "all_time_high": None,
+            "all_time_low": None,
+            "current_price": None,
+            "price_change_7d": None,
+            "price_change_30d": None,
+            "total_entries": len(price_history)
+        }
+        
+        all_prices = []
+        dates = []
+        
+        for entry in price_history:
+            if len(entry) < 2:
+                continue
+                
+            date_str = entry[0]  # "YYYY-MM-DD"
+            price_cents = entry[1]  # Preço em centavos
+            volume = entry[2] if len(entry) > 2 else None  # Volume de vendas
+            listings = entry[3] if len(entry) > 3 else None  # Número de ofertas
+            
+            # Converter centavos para dólares
+            try:
+                price_cents_int = int(price_cents) if isinstance(price_cents, (int, float)) else 0
+                price_usd = price_cents_int / 100.0
+            except (ValueError, TypeError):
+                continue
+            
+            parsed_entry = {
+                "date": date_str,
+                "price_usd": price_usd,
+                "price_cents": price_cents_int,
+                "volume": volume,
+                "listings": listings
+            }
+            
+            parsed_data["entries"].append(parsed_entry)
+            all_prices.append(price_usd)
+            dates.append(date_str)
+        
+        if all_prices:
+            parsed_data["all_time_high"] = round(max(all_prices), 2)
+            parsed_data["all_time_low"] = round(min(all_prices), 2)
+            parsed_data["current_price"] = round(all_prices[-1], 2) if all_prices else None
+            
+            # Calcular mudança de preço (7 dias e 30 dias)
+            if len(all_prices) >= 7:
+                price_7d_ago = all_prices[-7] if len(all_prices) >= 7 else all_prices[0]
+                current = all_prices[-1]
+                if price_7d_ago > 0:
+                    change_7d = ((current - price_7d_ago) / price_7d_ago) * 100
+                    parsed_data["price_change_7d"] = round(change_7d, 2)
+            
+            if len(all_prices) >= 30:
+                price_30d_ago = all_prices[-30] if len(all_prices) >= 30 else all_prices[0]
+                current = all_prices[-1]
+                if price_30d_ago > 0:
+                    change_30d = ((current - price_30d_ago) / price_30d_ago) * 100
+                    parsed_data["price_change_30d"] = round(change_30d, 2)
+        
+        return parsed_data
+    except Exception as e:
+        print(f"DEBUGGING: Erro ao processar histórico de preços: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 def get_item_detailed_data_via_csgostash(market_hash_name: str, currency: int = STEAM_MARKET_CURRENCY) -> Optional[Dict]:
     """
     Obtém dados completos de um item através de scraping do CSGOSkins.gg.
@@ -887,6 +1052,25 @@ def get_item_detailed_data_via_csgostash(market_hash_name: str, currency: int = 
         else:
             result["price_range"] = {"min": None, "max": None}
             result["price"] = None
+        
+        # Extrair histórico de preços do script JavaScript
+        print(f"DEBUGGING: Extraindo histórico de preços...")
+        price_history_raw = extract_price_history_from_html(html_text)
+        
+        if price_history_raw:
+            price_history_parsed = parse_price_history(price_history_raw)
+            if price_history_parsed:
+                result["price_history"] = price_history_parsed
+                print(f"DEBUGGING: Histórico de preços extraído: {price_history_parsed['total_entries']} entradas")
+                print(f"DEBUGGING: All Time High: ${price_history_parsed.get('all_time_high', 0):.2f}")
+                print(f"DEBUGGING: All Time Low: ${price_history_parsed.get('all_time_low', 0):.2f}")
+                print(f"DEBUGGING: Preço atual: ${price_history_parsed.get('current_price', 0):.2f}")
+                if price_history_parsed.get('price_change_7d') is not None:
+                    print(f"DEBUGGING: Mudança 7 dias: {price_history_parsed.get('price_change_7d'):.2f}%")
+                if price_history_parsed.get('price_change_30d') is not None:
+                    print(f"DEBUGGING: Mudança 30 dias: {price_history_parsed.get('price_change_30d'):.2f}%")
+        else:
+            print(f"DEBUGGING: Não foi possível extrair histórico de preços")
         
         # Log final dos preços extraídos
         print(f"DEBUGGING: Dados completos extraídos para {base_name}")
