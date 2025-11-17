@@ -146,8 +146,23 @@ async def get_specific_price(
             market_hash_name
         )
         
-        if not detailed_data or not detailed_data.get("prices"):
+        if not detailed_data:
             print(f"Não foi possível obter dados para {market_hash_name}")
+            return None
+        
+        # Sempre tentar extrair a imagem, mesmo se não tivermos preços
+        image_url = detailed_data.get("image_url")
+        
+        if not detailed_data.get("prices"):
+            print(f"Não foi possível obter preços para {market_hash_name}, mas temos dados da página")
+            # Se include_image=True, retornar pelo menos a imagem
+            if include_image and image_url:
+                return {
+                    "price": None,
+                    "icon_url": image_url,
+                    "not_possible": False,
+                    "message": f"Preços não disponíveis para {market_hash_name}"
+                }
             return None
         
         # Extrair preço específico baseado em wear e StatTrak
@@ -184,17 +199,25 @@ async def get_specific_price(
                 print(f"Preço não encontrado para {market_hash_name} ({exterior}, StatTrak={stattrack})")
         
         if price is None:
-            # Se include_image=True, retornar dict indicando "not_possible" ou erro
+            # Se include_image=True, sempre retornar a imagem se disponível
             if include_image:
+                image_url = detailed_data.get("image_url")
                 if is_not_possible:
                     return {
                         "price": None,
-                        "icon_url": detailed_data.get("image_url"),
+                        "icon_url": image_url,
                         "not_possible": True,
                         "message": f"Esta skin não existe em {exterior} {'StatTrak' if stattrack else 'Normal'}"
                     }
                 else:
-                    # Erro real - não encontrado
+                    # Erro real - não encontrado, mas ainda retornar imagem se disponível
+                    if image_url:
+                        return {
+                            "price": None,
+                            "icon_url": image_url,
+                            "not_possible": False,
+                            "message": f"Preço não encontrado para {market_hash_name} ({exterior}, StatTrak={stattrack})"
+                        }
                     return None
             
             return None
@@ -249,34 +272,37 @@ async def analyze_inventory_items(items: List[dict]) -> Dict:
             price_usd = price_data
             icon_url = None
         
+        # Sempre criar result_item, mesmo sem preço
+        result_item = {
+            **item,
+            'price_usd': price_usd if price_usd else 0.0,
+            'total_usd': (price_usd * item.get('quantity', 1)) if price_usd else 0.0,
+            'source': 'Steam Market',
+            'last_updated': datetime.now().isoformat()
+        }
+        
+        # Adicionar icon_url se disponível (prioridade: do scraping > do item original)
+        if icon_url:
+            result_item['icon_url'] = icon_url
+        elif item.get('icon_url'):
+            result_item['icon_url'] = item.get('icon_url')
+        
+        # Adicionar informações de erro se não encontrou preço
+        if not price_usd:
+            if isinstance(price_data, dict):
+                if price_data.get('not_possible'):
+                    result_item['not_possible'] = True
+                    result_item['message'] = price_data.get('message', 'Price not available')
+                else:
+                    result_item['error'] = price_data.get('message', 'Price not found')
+            else:
+                result_item['error'] = 'Price not found'
+        
         if price_usd:
             # Calcular total considerando quantidade
-            item_total_usd = price_usd * item.get('quantity', 1)
-            total_usd += item_total_usd
-            
-            result_item = {
-                **item,
-                'price_usd': price_usd,
-                'total_usd': item_total_usd,
-                'source': 'Steam Market',
-                'last_updated': datetime.now().isoformat()
-            }
-            
-            # Adicionar icon_url se disponível
-            if icon_url:
-                result_item['icon_url'] = icon_url
-            elif item.get('icon_url'):
-                result_item['icon_url'] = item.get('icon_url')
-            
-            results.append(result_item)
-        else:
-            # Item sem preço encontrado
-            results.append({
-                **item,
-                'price_usd': 0.0,
-                'total_usd': 0.0,
-                'error': 'Price not found'
-            })
+            total_usd += result_item['total_usd']
+        
+        results.append(result_item)
     
     return {
         'total_items': len(results),

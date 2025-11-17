@@ -228,8 +228,9 @@ async def get_item_price_endpoint(
     
     # Se não encontrou preço, verificar se é "Not possible" ou erro real
     if price_usd is None:
-        # Se temos dados mas o preço é None, provavelmente é "Not possible"
-        if isinstance(price_data, dict) and price_data.get('not_possible'):
+        # Se temos dados (mesmo que seja dict com erro), retornar resposta com imagem se disponível
+        if isinstance(price_data, dict):
+            # Sempre retornar resposta com icon_url se disponível, mesmo em caso de erro
             return ItemPriceResponse(
                 market_hash_name=market_hash_name,
                 exterior=exterior,
@@ -240,14 +241,14 @@ async def get_item_price_endpoint(
                 source="Steam Market",
                 last_updated=datetime.datetime.now().isoformat(),
                 icon_url=icon_url,
-                not_possible=True,
-                message=message or f"Esta skin não existe em {exterior} {'StatTrak' if stattrack else 'Normal'}"
+                not_possible=not_possible,
+                message=message or (f"Esta skin não existe em {exterior} {'StatTrak' if stattrack else 'Normal'}" if not_possible else f"Preço não encontrado para {market_hash_name} ({exterior})")
             )
         else:
-            # Erro real - item não encontrado
+            # Se price_data é None, não conseguimos nem fazer scraping
             raise HTTPException(
                 status_code=404,
-                detail=f"Preço não encontrado para {market_hash_name} ({exterior})"
+                detail=f"Item não encontrado: {market_hash_name}"
             )
     
     return ItemPriceResponse(
