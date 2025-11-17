@@ -324,13 +324,15 @@ async def analyze_inventory_items(items: List[dict]) -> Dict:
             include_image=True
         )
         
-        # Extrair preço e icon_url
+        # Extrair preço, icon_url e histórico de preços
         if isinstance(price_data, dict):
             price_usd = price_data.get('price')
             icon_url = price_data.get('icon_url')
+            price_history = price_data.get('price_history')
         else:
             price_usd = price_data
             icon_url = None
+            price_history = None
         
         # Sempre criar result_item, mesmo sem preço
         result_item = {
@@ -346,6 +348,10 @@ async def analyze_inventory_items(items: List[dict]) -> Dict:
             result_item['icon_url'] = icon_url
         elif item.get('icon_url'):
             result_item['icon_url'] = item.get('icon_url')
+        
+        # Adicionar histórico de preços se disponível
+        if price_history:
+            result_item['price_history'] = price_history
         
         # Adicionar informações de erro se não encontrou preço
         if not price_usd:
