@@ -1,10 +1,11 @@
 import requests
 from selectolax.parser import HTMLParser
 import urllib.parse
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Union
 from datetime import datetime
 import time
 import re
+import asyncio
 from services.steam_market import get_item_detailed_data_via_csgostash, sleep_between_requests
 
 # Taxa de câmbio USD para BRL (pode ser atualizada dinamicamente)
@@ -98,8 +99,9 @@ def _get_mock_data(market_hash_name: str) -> Dict:
 async def get_specific_price(
     market_hash_name: str,
     exterior: str,
-    stattrack: bool = False
-) -> Optional[float]:
+    stattrack: bool = False,
+    include_image: bool = False
+) -> Union[Optional[float], Dict]:
     """
     Busca preço específico de uma skin no Steam Market considerando wear e StatTrak.
     Usa o serviço existente de scraping do CSGOSkins.gg que já extrai preços por wear.
@@ -108,9 +110,11 @@ async def get_specific_price(
         market_hash_name: Nome base da skin (ex: "AK-47 | Redline")
         exterior: Condição do item (ex: "Battle-Scarred", "Field-Tested", etc.)
         stattrack: Se é StatTrak (True) ou Normal (False)
+        include_image: Se True, retorna dict com price e icon_url. Se False, retorna apenas float.
     
     Returns:
-        float: Preço em USD, ou None se não encontrar
+        float: Preço em USD, ou None se não encontrar (quando include_image=False)
+        dict: {"price": float, "icon_url": str} quando include_image=True
     """
     try:
         # Mapeamento de nomes de exterior para chaves internas
@@ -133,14 +137,14 @@ async def get_specific_price(
             print(f"Exterior '{exterior}' não reconhecido")
             return None
         
-        # Usar o serviço existente que já extrai dados completos
+        # Usar o scraping real do CSGOSkins.gg
         print(f"Buscando preço específico para {market_hash_name} ({exterior}, StatTrak={stattrack})")
         
-        # MODO TESTE: Usar dados mockados temporariamente para testes
-        # TODO: Remover quando for para produção e usar scraping real
-        # Por enquanto, vamos usar apenas dados mockados para testar os endpoints
-        print(f"Usando dados mockados para teste de {market_hash_name}")
-        detailed_data = _get_mock_data(market_hash_name)
+        # Executar scraping síncrono em thread separada para não bloquear o event loop
+        detailed_data = await asyncio.to_thread(
+            get_item_detailed_data_via_csgostash, 
+            market_hash_name
+        )
         
         if not detailed_data or not detailed_data.get("prices"):
             print(f"Não foi possível obter dados para {market_hash_name}")
@@ -162,6 +166,14 @@ async def get_specific_price(
             return None
         
         print(f"Preço encontrado: ${price:.2f} USD para {market_hash_name} ({exterior}, StatTrak={stattrack})")
+        
+        # Se include_image=True, retornar dict com price e icon_url
+        if include_image:
+            return {
+                "price": float(price),
+                "icon_url": detailed_data.get("image_url")
+            }
+        
         return float(price)
         
     except Exception as e:
@@ -186,24 +198,42 @@ async def analyze_inventory_items(items: List[dict]) -> Dict:
     total_usd = 0.0
     
     for item in items:
-        price_usd = await get_specific_price(
+        # Buscar preço com imagem
+        price_data = await get_specific_price(
             item.get('market_hash_name', ''),
             item.get('exterior', ''),
-            item.get('stattrack', False)
+            item.get('stattrack', False),
+            include_image=True
         )
+        
+        # Extrair preço e icon_url
+        if isinstance(price_data, dict):
+            price_usd = price_data.get('price')
+            icon_url = price_data.get('icon_url')
+        else:
+            price_usd = price_data
+            icon_url = None
         
         if price_usd:
             # Calcular total considerando quantidade
             item_total_usd = price_usd * item.get('quantity', 1)
             total_usd += item_total_usd
             
-            results.append({
+            result_item = {
                 **item,
                 'price_usd': price_usd,
                 'total_usd': item_total_usd,
                 'source': 'Steam Market',
                 'last_updated': datetime.now().isoformat()
-            })
+            }
+            
+            # Adicionar icon_url se disponível
+            if icon_url:
+                result_item['icon_url'] = icon_url
+            elif item.get('icon_url'):
+                result_item['icon_url'] = item.get('icon_url')
+            
+            results.append(result_item)
         else:
             # Item sem preço encontrado
             results.append({

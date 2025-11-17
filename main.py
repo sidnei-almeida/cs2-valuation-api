@@ -211,7 +211,16 @@ async def get_item_price_endpoint(
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "*"
     
-    price_usd = await get_specific_price(market_hash_name, exterior, stattrack)
+    # Buscar preço com imagem
+    price_data = await get_specific_price(market_hash_name, exterior, stattrack, include_image=True)
+    
+    # Extrair preço e icon_url
+    if isinstance(price_data, dict):
+        price_usd = price_data.get('price')
+        icon_url = price_data.get('icon_url')
+    else:
+        price_usd = price_data
+        icon_url = None
     
     if price_usd is None:
         raise HTTPException(
@@ -227,7 +236,8 @@ async def get_item_price_endpoint(
         price_brl=None,  # Conversão deve ser feita no frontend
         currency="USD",
         source="Steam Market",
-        last_updated=datetime.datetime.now().isoformat()
+        last_updated=datetime.datetime.now().isoformat(),
+        icon_url=icon_url
     )
 
 
