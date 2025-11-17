@@ -159,10 +159,44 @@ async def get_specific_price(
             price_dict = prices.get("normal", {})
         
         # Buscar preço para o exterior específico
-        price = price_dict.get(exterior_key)
+        # Se a chave existe no dict mas o valor é None, significa "Not possible"
+        # Se a chave não existe, significa que não foi encontrado
+        price = None
+        is_not_possible = False
+        
+        # Verificar se a chave existe no dict (mesmo que seja None)
+        if exterior_key in price_dict:
+            price = price_dict[exterior_key]
+            # Se a chave existe mas o valor é None, foi marcado como "Not possible" no scraping
+            if price is None:
+                is_not_possible = True
+                print(f"Skin marcada como 'Not possible' para {market_hash_name} ({exterior}, StatTrak={stattrack})")
+        else:
+            # Chave não existe - verificar se temos outros preços disponíveis para confirmar que é erro
+            # Se temos outros preços mas não este, pode ser "Not possible" também
+            has_any_price = any(p is not None and isinstance(p, (int, float)) and p > 0 
+                              for p in price_dict.values())
+            if has_any_price:
+                # Temos outros preços, então este provavelmente é "Not possible"
+                is_not_possible = True
+                print(f"Skin provavelmente 'Not possible' para {market_hash_name} ({exterior}, StatTrak={stattrack}) - outros wears disponíveis")
+            else:
+                print(f"Preço não encontrado para {market_hash_name} ({exterior}, StatTrak={stattrack})")
         
         if price is None:
-            print(f"Preço não encontrado para {market_hash_name} ({exterior}, StatTrak={stattrack})")
+            # Se include_image=True, retornar dict indicando "not_possible" ou erro
+            if include_image:
+                if is_not_possible:
+                    return {
+                        "price": None,
+                        "icon_url": detailed_data.get("image_url"),
+                        "not_possible": True,
+                        "message": f"Esta skin não existe em {exterior} {'StatTrak' if stattrack else 'Normal'}"
+                    }
+                else:
+                    # Erro real - não encontrado
+                    return None
+            
             return None
         
         print(f"Preço encontrado: ${price:.2f} USD para {market_hash_name} ({exterior}, StatTrak={stattrack})")
@@ -171,7 +205,8 @@ async def get_specific_price(
         if include_image:
             return {
                 "price": float(price),
-                "icon_url": detailed_data.get("image_url")
+                "icon_url": detailed_data.get("image_url"),
+                "not_possible": False
             }
         
         return float(price)

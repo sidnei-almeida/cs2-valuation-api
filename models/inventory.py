@@ -29,12 +29,14 @@ class ItemPriceResponse(BaseModel):
     market_hash_name: str
     exterior: str
     stattrack: bool
-    price_usd: float
+    price_usd: Optional[float] = None  # None quando "Not possible"
     price_brl: Optional[float] = None
     currency: str
     source: str
     last_updated: str
     icon_url: Optional[str] = None
+    not_possible: Optional[bool] = False  # True quando a skin não existe nessa condição
+    message: Optional[str] = None  # Mensagem explicativa
 
 
 class InventoryAnalysisResponse(BaseModel):
