@@ -15,7 +15,7 @@ from utils.config import (
     STEAM_DAILY_LIMIT
 )
 from utils.scraper import process_scraped_price
-from utils.database import get_skin_price, save_skin_price, update_last_scrape_time
+from utils.database import get_skin_price, save_skin_price, save_price_history, update_last_scrape_time
 
 # Carrega as variáveis de ambiente (se existir um arquivo .env)
 load_dotenv()
@@ -1538,6 +1538,9 @@ def get_item_price(market_hash_name: str, currency: int = None, appid: int = Non
         # Registrar que o scraping foi feito
         update_last_scrape_time(market_hash_name, currency, appid)
         
+        # Extrair histórico de preços se disponível
+        price_history = detailed_data.get("price_history")
+        
         # Preparar dados para retorno
         price_data = {
             "price": processed_price,
@@ -1554,6 +1557,10 @@ def get_item_price(market_hash_name: str, currency: int = None, appid: int = Non
             "timestamp": detailed_data.get("timestamp")
         }
         
+        # Incluir histórico de preços se disponível
+        if price_history:
+            price_data["price_history"] = price_history
+        
         # Armazenar no cache e banco de dados
         price_cache[cache_key] = price_data
         
@@ -1566,6 +1573,11 @@ def get_item_price(market_hash_name: str, currency: int = None, appid: int = Non
             detailed_data=detailed_data,
             image_url=detailed_data.get("image_url")
         )
+        
+        # Salvar histórico de preços em tabela separada
+        if price_history:
+            base_name = detailed_data.get("market_hash_name", market_hash_name)
+            save_price_history(base_name, price_history)
         
         return price_data
     except Exception as e:
