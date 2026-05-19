@@ -1,324 +1,246 @@
-# CS2 Valuation API
+<!-- Canonical repository: https://github.com/sidnei-almeida/cs2-valuation-api -->
+<p align="center">
+  <img src="images/header.png" alt="CS2 Valuation API — Counter-Strike 2 skin pricing" width="640" />
+</p>
 
-![Python](https://img.shields.io/badge/Python-3.11-3776AB.svg?style=for-the-badge&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.111-05998B.svg?style=for-the-badge&logo=fastapi&logoColor=white)
-![Render](https://img.shields.io/badge/Deployed%20on-Render-3A56D4.svg?style=for-the-badge&logo=render&logoColor=white)
-![Neon](https://img.shields.io/badge/Database-Neon.Tech-00E599.svg?style=for-the-badge&logo=postgresql&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg?style=for-the-badge&logo=postgresql&logoColor=white)
+<h1 align="center">cs2-valuation-api</h1>
 
-> **Professional-grade API** for evaluating Counter-Strike 2 inventories with intelligent price scraping, storage unit analysis, and Steam OpenID authentication.
+<p align="center">
+  <strong>FastAPI service for Counter-Strike 2 skin valuation: Steam Market–backed prices with wear and StatTrak, batch inventory analysis, and optional PostgreSQL caching with scheduled refreshes.</strong>
+</p>
 
----
+<p align="center">
+  <a href="https://fastapi.tiangolo.com/" title="FastAPI"><img src="https://cdn.simpleicons.org/fastapi/009688" alt="FastAPI" width="56" height="56" /></a>
+  &nbsp;&nbsp;&nbsp;
+  <a href="https://www.python.org/" title="Python"><img src="https://cdn.simpleicons.org/python/3776AB" alt="Python" width="56" height="56" /></a>
+  &nbsp;&nbsp;&nbsp;
+  <a href="https://www.postgresql.org/" title="PostgreSQL"><img src="https://cdn.simpleicons.org/postgresql/4169E1" alt="PostgreSQL" width="56" height="56" /></a>
+  &nbsp;&nbsp;&nbsp;
+  <a href="https://store.steampowered.com/" title="Steam"><img src="https://cdn.simpleicons.org/steam/000000" alt="Steam" width="56" height="56" /></a>
+</p>
 
-## 📋 Table of Contents
+<p align="center">
+  <img src="https://img.shields.io/badge/FastAPI-0.100+-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11" />
+  <img src="https://img.shields.io/badge/PostgreSQL-Neon-4169E1?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL" />
+  <img src="https://img.shields.io/badge/Deploy-Render-3A56D4?style=flat-square&logo=render&logoColor=white" alt="Render" />
+</p>
 
-- [Overview](#-overview)
-- [Key Features](#-key-features)
-- [Architecture](#-architecture)
-- [Tech Stack](#-tech-stack)
-- [Quick Start](#-quick-start)
-- [Environment Variables](#-environment-variables)
-- [Deployment on Render](#-deployment-on-render)
-- [Database Setup (Neon.tech)](#-database-setup-neontech)
-- [API Documentation](#-api-documentation)
-- [Project Structure](#-project-structure)
-- [Contributing](#-contributing)
-
----
-
-## 🎯 Overview
-
-The **CS2 Valuation API** is a production-ready REST API designed to evaluate Counter-Strike 2 inventories with a focus on Storage Units and rare items. The platform provides:
-
-- **Intelligent Price Scraping**: Robust collection layer with fallback mechanisms and anti-blocking heuristics
-- **Real-time Inventory Analysis**: Complete evaluation by item, category, rarity, and float value
-- **Storage Unit Support**: Authenticated access to user's Storage Unit contents
-- **Steam Integration**: Secure login and item ownership verification via Steam OpenID
-- **Production Ready**: Fully configured for deployment on Render with PostgreSQL (Neon.tech)
-
-The API is currently used in production by a frontend hosted on GitHub Pages, but can be integrated into any application.
-
----
-
-## ✨ Key Features
-
-| Feature | Description |
-|---------|-------------|
-| 🎯 **Smart Scraping** | Multi-source price collection with automatic fallback and rate limiting |
-| 📊 **Inventory Analysis** | Complete evaluation by category, rarity, float value, and market trends |
-| 🗄️ **Storage Units** | Authenticated access to Storage Unit contents (user's own units only) |
-| 🔐 **Steam OpenID** | Secure authentication and ownership verification |
-| 💾 **Database Cache** | PostgreSQL caching with automatic weekly updates |
-| 📈 **Health Monitoring** | Built-in health checks and status endpoints |
-| 🚀 **Production Ready** | Docker, Procfile, and Render configuration included |
+<p align="center">
+  <a href="#overview">Overview</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#gallery">Gallery</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#requirements">Requirements</a> ·
+  <a href="#installation-and-quick-start">Quick start</a> ·
+  <a href="#environment-variables">Environment</a> ·
+  <a href="#api-reference">API</a> ·
+  <a href="#deployment">Deploy</a> ·
+  <a href="#project-layout">Layout</a> ·
+  <a href="#author">Author</a>
+</p>
 
 ---
 
-## 🏗️ Architecture
+## Overview
 
+**cs2-valuation-api** exposes JSON endpoints consumed by static frontends (e.g. GitHub Pages). It scrapes and normalizes **Steam Market** pricing, supports **per-exterior** and **StatTrak** lookups, and can **analyze many line items in one request**. PostgreSQL (commonly **Neon**) stores cache metadata; a background **scheduler** can run weekly price maintenance after startup.
+
+> **Scope:** This README describes the **pricing / inventory API** in `main.py`. Optional **Steam OpenID** helpers under `auth/` are not mounted as routes in the current application entrypoint—integrate them if you add authenticated flows.
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph clients["Clients"]
+    FE["Web / SPA"]
+  end
+
+  subgraph api["cs2-valuation-api"]
+    FA["FastAPI"]
+    SCR["Scraping & Steam Market adapters"]
+    SCH["Weekly scheduler"]
+  end
+
+  subgraph data["Data"]
+    PG[("PostgreSQL / Neon")]
+  end
+
+  SM["Steam Community Market"]
+
+  FE --> FA
+  FA --> SCR --> SM
+  FA --> PG
+  SCH --> SCR
+  SCH --> PG
 ```
-┌─────────────────┐         ┌──────────────────────┐         ┌─────────────────────┐
-│    Frontend     │────────▶│   CS2 Valuation API  │────────▶│   Neon.tech (PG)    │
-│  (GitHub Pages) │         │  (FastAPI + Gunicorn)│         │   Cache & Reports   │
-└─────────────────┘         └──────────────────────┘         └─────────────────────┘
-         │                            │                                │
-         │                            └────────────┬───────────────────┘
-         │                                         │
-         ▼                                         ▼
-   Steam OpenID                          Scraping Services
-  (Authentication)              (Steam Market, CSGOSkins, etc.)
-```
-
-### Component Overview
-
-- **API Layer**: FastAPI with async/await support, automatic OpenAPI documentation
-- **Database Layer**: PostgreSQL with connection pooling, SSL support, and fallback to in-memory cache
-- **Scraping Layer**: Multi-source price collection with intelligent retry logic
-- **Authentication**: Steam OpenID integration for secure user verification
 
 ---
 
-## 🛠️ Tech Stack
+## Gallery
 
-| Category | Technology |
-|----------|-----------|
-| **Language** | Python 3.11 |
-| **Web Framework** | FastAPI + Uvicorn/Gunicorn |
-| **Database** | PostgreSQL (Neon.tech) |
-| **ORM/Driver** | psycopg2 |
-| **Authentication** | Steam OpenID |
-| **Deployment** | Render.com |
-| **Containerization** | Docker (optional) |
-| **Environment** | python-dotenv |
-| **HTTP Client** | requests |
-| **HTML Parsing** | selectolax |
+README visuals live under **`images/`**:
+
+| File | Use |
+|------|-----|
+| `images/header.png` | Hero banner (referenced above). |
+| `images/software.png` | Gallery: UI, Swagger, or request–response example. |
+
+<p align="center">
+  <img src="images/software.png" alt="CS2 Valuation API — product or workflow screenshot" width="920" />
+</p>
+
+<p align="center">
+  <em><strong>Figure 1.</strong> Overview capture; update <code>images/software.png</code> when you refresh the UI.</em>
+</p>
 
 ---
 
-## 🚀 Quick Start
+## Features
 
-### Prerequisites
+| Area | Description |
+|------|-------------|
+| **Granular pricing** | `market_hash_name` + **exterior** (FN, MW, FT, WW, BS) + **StatTrak** flag. |
+| **Batch analysis** | `POST /api/inventory/analyze-items` for many items in one payload. |
+| **Market overview** | `GET /price/{market_hash_name}` with rich metadata when the scraper returns it. |
+| **Cases** | `GET /cases`, `GET /case/{case_name}` backed by `data/cases.json` and live prices. |
+| **Resilience** | Broad **CORS** profile for static hosting; global handlers keep CORS headers on errors. |
+| **Ops** | `GET /healthcheck`, `GET /api/status`; **Gunicorn + UvicornWorker** for production. |
 
-- Python 3.11+
-- PostgreSQL database (Neon.tech recommended)
-- Git
+---
 
-### Local Setup
+## Requirements
+
+| Component | Notes |
+|-----------|--------|
+| **Python** | **3.11** (matches `render.yaml` / Docker). |
+| **Database** | PostgreSQL URL via **`DATABASE_URL`** for full cache behaviour (`psycopg2-binary`). |
+| **Network** | Reachability of Steam / scraping targets used in `services/` and `utils/`. |
+
+Install deps:
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/<your-username>/cs2-valuation-api.git
-cd cs2-valuation-api
-
-# 2. Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-
-# 3. Install dependencies
 pip install -r requirements.txt
-
-# 4. Configure environment variables
-cp env.example .env
-# Edit .env with your DATABASE_URL and other variables
-
-# 5. Initialize database (first time only)
-python migrate_db.py
-
-# 6. Run the API
-python main.py
 ```
-
-The API will be available at `http://127.0.0.1:8000` with interactive documentation at `/docs`.
 
 ---
 
-## 🔐 Environment Variables
-
-### Required Variables
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `DATABASE_URL` | Complete PostgreSQL connection string | `postgresql://user:pass@host/db?sslmode=require` |
-| `PGUSER` | Database user for CLI tools | `neondb_owner` |
-| `PGPASSWORD` | Database password | `your_password` |
-
-### Optional Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `SECRET_KEY` | JWT signing key | Auto-generated |
-| `STEAM_API_KEY` | Steam API key for advanced features | None |
-| `PYTHON_VERSION` | Python version for Render | `3.11.0` |
-| `PORT` | Server port | `8000` (local) / `$PORT` (Render) |
-
-> **Note**: For local development, create a `.env` file in the project root. For production (Render), configure these in the dashboard's Environment Variables section.
-
----
-
-## ☁️ Deployment on Render
-
-This project is fully configured for deployment on [Render.com](https://render.com/).
-
-### Quick Deploy Steps
-
-1. **Create a Web Service** on Render
-   - Connect your GitHub repository (`cs2-valuation-api`)
-   - Set **Root Directory** to `.` (if code is in repo root) or `cotacao_cs2` (if in subdirectory)
-   - Select **Python 3** environment
-
-2. **Configure Build & Start Commands**
-   ```
-   Build Command: pip install -r requirements.txt
-   Start Command: gunicorn -k uvicorn.workers.UvicornWorker -w 4 --timeout 120 --keep-alive 120 main:app -b 0.0.0.0:$PORT
-   ```
-
-3. **Set Environment Variables**
-   - `DATABASE_URL`: Your Neon.tech connection string
-   - `PGUSER`: Database user
-   - `PGPASSWORD`: Database password
-   - `PYTHON_VERSION`: `3.11.0`
-
-4. **Initialize Database**
-   - After first deployment, visit: `https://your-service.onrender.com/api/db/init`
-   - Or run locally: `python migrate_db.py`
-
-### Alternative: Deploy via Blueprint
-
-The project includes `render.yaml` for automated deployment:
-
-1. In Render Dashboard, click **"New +"** → **"Blueprint"**
-2. Connect your repository
-3. Render will automatically detect and configure the service
-
-📖 **Detailed Guide**: See [RENDER_DEPLOY.md](RENDER_DEPLOY.md) for complete instructions.
-
----
-
-## 🗄️ Database Setup (Neon.tech)
-
-This project uses **Neon.tech** for PostgreSQL hosting, providing:
-
-- ✅ Serverless PostgreSQL with automatic scaling
-- ✅ Connection pooling built-in
-- ✅ SSL/TLS encryption required
-- ✅ Free tier available
-
-### Connection String
-
-```
-postgresql://neondb_owner:npg_IQagKh8yZE4A@ep-icy-hill-aemvtr7r-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
-```
-
-### Database Initialization
-
-After setting up your connection string:
+## Installation and quick start
 
 ```bash
-# Option 1: Via API endpoint
-curl "https://your-service.onrender.com/api/db/init?admin_key=YOUR_KEY"
-
-# Option 2: Via migration script
-export DATABASE_URL="your-connection-string"
-python migrate_db.py
+git clone https://github.com/sidnei-almeida/cs2-valuation-api.git
+cd cs2-valuation-api
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env        # or env.example — edit secrets locally, never commit
+uvicorn main:app --reload --host 0.0.0.0 --port 8080
 ```
 
-📖 **Complete Guide**: See [NEON_DATABASE.md](NEON_DATABASE.md) for detailed setup, troubleshooting, and best practices.
+Open **`http://127.0.0.1:8080/docs`**.
+
+> **`PORT`:** `main.py` defaults to **8080** when run directly; **Render** and `render.yaml` inject **`PORT`** automatically.
 
 ---
 
-## 📚 API Documentation
+## Environment variables
 
-### Interactive Documentation
+| Variable | Purpose |
+|----------|---------|
+| **`DATABASE_URL`** | PostgreSQL connection string (SSL recommended for Neon). |
+| **`STEAM_API_KEY`** | Optional, if you extend Steam Web API usage. |
+| **`JWT_SECRET_KEY`** | Optional signing secret for future JWT flows. |
+| **`RENDER`** | Detected at startup for environment hints. |
 
-Once the API is running, visit:
-- **Swagger UI**: `http://localhost:8000/docs`
-- **ReDoc**: `http://localhost:8000/redoc`
-
-### Key Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/status` | GET | API status and component health |
-| `/healthcheck` | GET | Simple health check for Render |
-| `/api/inventory/{steamid}` | GET | Get inventory value for a Steam ID |
-| `/api/db/init` | GET | Initialize database tables |
-| `/api/db/stats` | GET | Database statistics (requires auth) |
-
-### Authentication
-
-Some endpoints require Steam OpenID authentication. See the `/docs` endpoint for complete authentication flow.
+Copy from **`.env.example`** / **`env.example`** and fill values **only on your machine or in the host dashboard**—do not commit secrets. Rotate any credentials that were ever committed to git.
 
 ---
 
-## 📁 Project Structure
+## API reference
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Service description and endpoint list. |
+| `GET` | `/api/inventory/item-price` | Query: `market_hash_name`, `exterior`, `stattrack` — single item price (USD / metadata). |
+| `POST` | `/api/inventory/analyze-items` | JSON body: batch inventory analysis. |
+| `GET` | `/price/{market_hash_name}` | Aggregated item pricing and detail fields when available. |
+| `GET` | `/cases` | All cases with current price fields. |
+| `GET` | `/case/{case_name}` | Single case metadata. |
+| `GET` | `/api/status` | Online / version / timestamp. |
+| `GET` | `/healthcheck` | Plain-text liveness (**OK** or warming message). |
+
+Full schemas: **`/docs`** (OpenAPI).
+
+**Example**
+
+```bash
+curl -s "http://127.0.0.1:8080/api/inventory/item-price?market_hash_name=AK-47%20%7C%20Redline%20(Field-Tested)&exterior=Field-Tested&stattrack=false"
+```
+
+---
+
+## Deployment
+
+| Target | Entry |
+|--------|--------|
+| **Render** | `render.yaml` — `gunicorn` with `uvicorn.workers.UvicornWorker`, bind `0.0.0.0:$PORT`. |
+| **Heroku-style** | `Procfile` mirrors the same Gunicorn command. |
+| **Docker** | `Dockerfile` in repo root. |
+
+Set **`DATABASE_URL`** in the provider’s secret store. See **`RENDER_DEPLOY.md`** and **`NEON_DATABASE.md`** for extended notes.
+
+---
+
+## Project layout
 
 ```
 cs2-valuation-api/
-├── main.py                 # FastAPI application entry point
-├── migrate_db.py          # Database initialization script
-├── requirements.txt        # Python dependencies
-├── render.yaml            # Render deployment configuration
-├── Procfile               # Process configuration for Render
-├── Dockerfile             # Docker configuration (optional)
-├── .env                   # Environment variables (local)
-├── env.example            # Environment variables template
-│
-├── auth/                  # Authentication module
-│   └── steam_auth.py      # Steam OpenID integration
-│
-├── services/              # Business logic services
-│   ├── steam_market.py    # Price scraping services
-│   ├── steam_inventory.py # Inventory analysis
-│   └── case_evaluator.py  # Case opening evaluation
-│
-└── utils/                 # Utility modules
-    ├── database.py        # Database connection and operations
-    ├── config.py          # Configuration management
-    ├── price_updater.py   # Scheduled price updates
-    └── scraper.py         # Web scraping utilities
+├── main.py                 # FastAPI app, CORS, routes, startup
+├── requirements.txt
+├── Dockerfile
+├── render.yaml
+├── Procfile
+├── railway.toml
+├── env.example / .env.example   # Template — do not commit real secrets
+├── auth/steam_auth.py          # Optional Steam auth helpers (not wired in main by default)
+├── services/                   # Steam market, inventory pricing, cases
+├── utils/                      # DB, scraper, migrations, price updater
+├── models/
+├── data/cases.json
+├── images/                     # README (header.png, software.png); optional sample JPGs for /samples
+└── notebooks/                  # If present — exploratory workflows
 ```
 
 ---
 
-## 🤝 Contributing
+## Troubleshooting
 
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Guidelines
-
-- Follow PEP 8 style guide
-- Add docstrings to all functions
-- Include type hints where possible
-- Update documentation for new features
-- Test your changes locally before submitting
+| Symptom | What to check |
+|---------|----------------|
+| **DB errors on startup** | Valid **`DATABASE_URL`**, SSL mode, Neon project awake. API may still start with limited features. |
+| **Scraper empty / 404** | Steam item spelling, exterior string, StatTrak vs normal variant. |
+| **CORS in browser** | Origin must be allowed or use `*` (already in list for dev); preflight cached 24h. |
+| **Slow batch** | Large payloads; Gunicorn timeout **120s** in `render.yaml`/Procfile. |
 
 ---
 
-## 📄 License
+## Author
 
-This project is licensed under the MIT License. See the repository for details.
-
----
-
-## 🔗 Additional Resources
-
-- [Render Deployment Guide](RENDER_DEPLOY.md) - Complete deployment instructions
-- [Neon.tech Database Guide](NEON_DATABASE.md) - Database setup and configuration
-- [FastAPI Documentation](https://fastapi.tiangolo.com/) - Framework documentation
-- [Neon.tech Documentation](https://neon.tech/docs) - Database provider docs
+| | |
+| --- | --- |
+| **Maintainer** | [Sidnei Almeida](https://github.com/sidnei-almeida) |
+| **Repository** | [github.com/sidnei-almeida/cs2-valuation-api](https://github.com/sidnei-almeida/cs2-valuation-api) |
 
 ---
 
-<div align="center">
+## License
 
-**Built with ❤️ for the CS2 community**
+Specify in **`LICENSE`** if you add one; default intent is often MIT—confirm before redistribution.
 
-[Report Bug](https://github.com/<your-username>/cs2-valuation-api/issues) · [Request Feature](https://github.com/<your-username>/cs2-valuation-api/issues) · [Documentation](https://github.com/<your-username>/cs2-valuation-api#readme)
+---
 
-</div>
+<p align="center">
+  <sub>Counter-Strike and Steam are trademarks of their respective owners; this project is an independent tool.</sub>
+</p>
